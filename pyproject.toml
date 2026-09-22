@@ -1,0 +1,15 @@
+[project]
+name = "spirob-cable-studio"
+version = "3.0.0"
+description = "One- and two-cable control and research workstation"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "PySide6==6.8.3",
+  "pyqtgraph==0.13.7",
+  "numpy==2.2.6",
+  "pymodbus==3.11.3",
+  "pyserial==3.5",
+]
+
+[tool.uv]
+package = false

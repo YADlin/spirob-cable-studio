@@ -1,0 +1,34 @@
+{
+  "schema_version": 3,
+  "active_axes": 2,
+  "axes": [
+    {
+      "port": "/dev/ttyUSB0",
+      "device_id": null,
+      "spool_diameter_mm": 27.0,
+      "cable_diameter_mm": 0.405,
+      "diameter_basis": null,
+      "calibrated_mm_per_rev": null,
+      "payout_sign": null,
+      "rest_length_mm": null,
+      "speed_mm_s": 0.5,
+      "jog_speed_mm_s": null,
+      "acceleration_raw": 1000,
+      "setup_travel_mm": 70.0
+    },
+    {
+      "port": "/dev/ttyUSB0",
+      "device_id": null,
+      "spool_diameter_mm": 27.0,
+      "cable_diameter_mm": 0.405,
+      "diameter_basis": null,
+      "calibrated_mm_per_rev": null,
+      "payout_sign": null,
+      "rest_length_mm": null,
+      "speed_mm_s": 0.5,
+      "jog_speed_mm_s": null,
+      "acceleration_raw": 1000,
+      "setup_travel_mm": 70.0
+    }
+  ]
+}
