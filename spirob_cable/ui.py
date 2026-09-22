@@ -19,25 +19,9 @@ from .worker import Worker
 from .plots import Plots, COLORS
 from .review import load_runs
 from .analysis import plot_series, measured_circumference
+from .theme import apply_theme
 
 ROOT = Path(__file__).resolve().parent.parent
-STYLE = '''
-QWidget {font-family: "DejaVu Sans"; font-size: 12px; color:#17364a;}
-QMainWindow {background:#edf2f5;}
-QGroupBox {background:#fff; border:1px solid #cfdde5; border-radius:6px; margin-top:12px; padding-top:9px; font-weight:600;}
-QGroupBox::title {subcontrol-origin:margin; left:9px; padding:0 4px;}
-QPushButton {padding:7px 9px; background:#fff; border:1px solid #bdd0dd; border-radius:4px;}
-QPushButton:hover {background:#e3f0ef;}
-QPushButton:disabled {color:#9aabb5; background:#f1f4f6;}
-QPushButton#primary {background:#00867f;color:white;font-weight:600;}
-QPushButton#stop {background:#b74635;color:white;font-weight:700;}
-QPushButton#primary:disabled,QPushButton#stop:disabled {background:#e5ebef;color:#8b9da9;border-color:#d0dbe2;}
-QLineEdit,QComboBox,QDoubleSpinBox,QSpinBox {background:#fff; padding:5px; border:1px solid #bdced9; border-radius:3px;}
-QLineEdit:disabled,QDoubleSpinBox:disabled {background:#edf1f4;color:#8b9da9;}
-QTabWidget::pane {border:1px solid #cfdae2;background:#f5f8fa;}
-QTabBar::tab {padding:9px;background:#e3ebf0;}
-QTabBar::tab:selected {background:white;color:#00867f;font-weight:700;}
-'''
 
 
 def label(text='', wrap=False):
@@ -61,6 +45,7 @@ def scroll(widget):
 
 class Studio(Q.QMainWindow):
     def __init__(self, demo=False, config_path=ROOT/'config.json', log_root=ROOT/'logs'):
+        apply_theme(Q.QApplication.instance())
         super().__init__(); self.demo=demo; self.config_path=Path(config_path); self.log_root=Path(log_root)
         self.worker=None; self.messages=queue.Queue(); self.pending=False; self.closing=False
         self.snapshot={}; self.active_config=None; self.session_path=None; self.last_draw=0
@@ -71,7 +56,7 @@ class Studio(Q.QMainWindow):
         self.cfg=cfg
         pg.setConfigOptions(foreground='#17364a',antialias=True)
         self.setWindowTitle('SpiRob Cable Studio 3.0'+(' — OFFLINE DEMO' if demo else ''))
-        self.resize(1420,900); self.setMinimumSize(1060,720); self.setStyleSheet(STYLE)
+        self.resize(1420,900); self.setMinimumSize(1060,720)
         self.build(); self.fill(cfg); self.refresh_controls()
         self.timer=QtCore.QTimer(self); self.timer.timeout.connect(self.refresh); self.timer.start(50)
         self.escape=QtGui.QShortcut(QtGui.QKeySequence('Escape'),self); self.escape.activated.connect(lambda:self.command('stop'))
@@ -592,7 +577,7 @@ def main():
         if args.demo: parser.error('Import hardware settings separately from demo')
         cfg=RigSettings.load(args.import_config); cfg.save(args.config)
         print(f'Imported {cfg.active_axes} active cable(s). IDs: {[a.device_id for a in cfg.axes]}. No motor commands sent.')
-    app=Q.QApplication(sys.argv[:1]); app.setStyle('Fusion')
+    app=Q.QApplication(sys.argv[:1])
     window=Studio(args.demo,args.config); window.show()
     signal.signal(signal.SIGINT,lambda *_:window.close()); signal.signal(signal.SIGTERM,lambda *_:window.close())
     return app.exec()

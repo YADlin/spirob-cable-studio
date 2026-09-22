@@ -1,5 +1,14 @@
 # Changes
 
+## Unreleased — interface contrast fix
+
+- Apply a complete light Qt palette, including active, inactive and disabled states,
+  instead of combining fixed dark text with inherited desktop-theme backgrounds.
+- Cover dropdowns, selection highlights, tables and headers, diagnostics, menus,
+  tooltips and Qt dialogs; keep disabled controls legible.
+- Improve button text contrast and keyboard focus visibility. Motor control,
+  limits, calibration, device IDs and recordings are unchanged.
+
 ## 3.0.0
 
 - Two independently addressed motors, shared or separate serial ports; one owner per client.
