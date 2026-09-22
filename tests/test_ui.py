@@ -125,5 +125,21 @@ class UITests(unittest.TestCase):
         self.w.stop_button.click(); self.until(lambda:self.w.snapshot.get('procedure',{}).get('phase')=='ABORTED' and all(a['state']=='HOLDING' for a in self.w.snapshot['axes']))
         self.assertTrue(all(a['enabled'] for a in self.w.snapshot['axes']))
 
+    def test_startup_fault_survives_worker_close_and_notice_expiry(self):
+        from spirob_cable.drive import DemoDrive, DriveFault
+        with patch.object(DemoDrive,'position',side_effect=DriveFault('ID 5: request deadline; RX bytes=12')):
+            self.w.connect_button.click()
+            self.until(lambda:self.w.worker is None)
+        self.w.notice_until=0; self.w.refresh()
+        self.assertIn('ID 5',self.w.readout.text())
+        self.assertIn('ID 5',self.w.notice_label.text())
+        self.assertTrue(self.w.dock.isVisible())
+        self.assertFalse(self.w.manual[0]['enable'].isEnabled())
+        self.assertFalse(self.w.manual[1]['enable'].isEnabled())
+        self.connect()
+        self.assertTrue(self.w.connection_ready)
+        self.assertEqual(self.w.session_error,'')
+        self.assertTrue(self.w.manual[0]['enable'].isEnabled())
+
 
 if __name__=='__main__': unittest.main()

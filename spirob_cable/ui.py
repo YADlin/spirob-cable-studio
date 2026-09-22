@@ -48,6 +48,7 @@ class Studio(Q.QMainWindow):
         apply_theme(Q.QApplication.instance())
         super().__init__(); self.demo=demo; self.config_path=Path(config_path); self.log_root=Path(log_root)
         self.worker=None; self.messages=queue.Queue(); self.pending=False; self.closing=False
+        self.connection_ready=False; self.session_error=''
         self.snapshot={}; self.active_config=None; self.session_path=None; self.last_draw=0
         self.review_runs=[]; self.notice_until=0
         try: cfg=RigSettings.load(self.config_path) if self.config_path.exists() else RigSettings()
@@ -279,6 +280,7 @@ class Studio(Q.QMainWindow):
             cfg=self.settings()
             if not self.demo: cfg.save(self.config_path)
             self.cfg=self.active_config=cfg; self.snapshot={}; self.plots.clear(); self.views.setCurrentIndex(0)
+            self.connection_ready=False; self.session_error=''
             self.worker=Worker(cfg,self.demo,self.log_root,self.messages,self.run_name.text()); self.worker.start()
             self.notice('Connecting selected IDs. Torque will be disabled; plots begin with the first feedback.')
         except Exception as exc: self.notice(str(exc))
@@ -479,6 +481,14 @@ class Studio(Q.QMainWindow):
             disabled=free and i<len(fresh) and fresh[i] and a.get('state')=='DISABLED'
             w['enable'].setEnabled(disabled)
             w['enable'].setText('Motor enabled' if a.get('enabled') else 'Enable / hold here')
+            if not connected: reason='Connect and wait for verified drive feedback first.'
+            elif fault: reason='Fault: '+self.snapshot.get('fault_reason','inspect Activity / diagnostics')
+            elif not self.connection_ready: reason='Connecting: waiting for disable acknowledgements and encoder feedback.'
+            elif i>=len(fresh) or not fresh[i]: reason='No fresh encoder feedback for this cable.'
+            elif self.pending or running or pending_ref: reason='Wait for the pending operation, or use Stop.'
+            elif a.get('enabled'): reason='Motor already enabled; use the jog controls.'
+            else: reason='Enable position hold at the current encoder position. Rest is not required.'
+            w['enable'].setToolTip(reason)
             w['release'].setEnabled(connected and not self.closing and not running and not self.pending)
             for key in ('step','speed','target_speed','rest_length'): w[key].setEnabled(not connected or idle or disabled)
             for key in ('plus','minus','rest'): w[key].setEnabled(idle)
@@ -493,7 +503,8 @@ class Studio(Q.QMainWindow):
                     rate=str(exc)
                 w['status'].setText(f'ID {cfg.device_id} · {a["state"]}\n'+coordinate+'\n'+rate)
             else: w['status'].setText('Disconnected. Connect, then Enable to jog.')
-        self.connect_button.setText('Disconnect' if connected else 'Connect · torque off'); self.connect_button.setEnabled(not self.closing)
+        connection_text='Disconnect' if self.connection_ready or fault else 'Connecting… Cancel'
+        self.connect_button.setText(connection_text if connected else 'Connect · torque off'); self.connect_button.setEnabled(not self.closing)
         self.enable_rest_button.setEnabled(free and len(axes)==count and all(fresh) and all(a['state']=='DISABLED' for a in axes))
         self.stop_button.setEnabled(connected and not self.closing); self.release_all_button.setEnabled(connected and not self.closing)
         both_idle=free and len(axes)==2 and all(fresh) and all(a['state']=='HOLDING' for a in axes) and self.snapshot.get('coordinates') is not None
@@ -524,14 +535,22 @@ class Studio(Q.QMainWindow):
             if kind=='sample': self.plots.append(item['data'])
             elif kind=='snapshot':
                 self.snapshot=item; self.session_path=Path(item['log_path'])
+                if item.get('faulted'):
+                    self.session_error=item.get('fault_reason','Unknown communication fault'); self.dock.show()
             elif kind=='event':
                 d=item['data']
+                if d['event']=='connected_disabled': self.connection_ready=True
                 if d['event']!='write_requested': self.activity.appendPlainText(f'{d["t_s"]:.3f}s '+json.dumps({k:v for k,v in d.items() if k!='t_s'}))
             elif kind=='command_done': self.pending=False
-            elif kind=='rejected': self.pending=False; self.notice(item['text'])
+            elif kind=='rejected':
+                self.pending=False; self.notice(item['text'])
+                if not self.connection_ready:
+                    self.session_error=item['text']; self.dock.show()
             elif kind=='closed':
-                self.worker=None; self.pending=False; self.snapshot={}
-                if not all(item['disable_confirmed']): self.notice('One or more disables UNCONFIRMED. Use the independent power disconnect.')
+                self.worker=None; self.pending=False; self.snapshot={}; self.connection_ready=False
+                if not all(item['disable_confirmed']):
+                    self.session_error=(self.session_error+' | ' if self.session_error else '')+'One or more disables UNCONFIRMED. Use the independent motor-power disconnect.'
+                if self.session_error: self.notice(self.session_error); self.dock.show()
                 else: self.notice('Disconnected. Plot retained for inspection; rest references cleared.')
         axes=self.snapshot.get('axes',[]); lines=[]
         for i,a in enumerate(axes):
@@ -542,12 +561,13 @@ class Studio(Q.QMainWindow):
         c=self.snapshot.get('coordinates')
         if c: lines.append(f'Mean A {c["mean_mm"]/1000:.4f} m   |   Half-difference D {c["half_difference_mm"]:+.3f} mm   |   sequential-read skew {c["skew_s"]*1000:.0f} ms')
         if lines: self.readout.setText('\n'.join(lines))
-        elif not self.worker: self.readout.setText('Disconnected · displayed traces are historical. On connection, displacement traces appear before enabling or setting rest.')
+        elif not self.worker:
+            self.readout.setText('Connection failed or faulted: '+self.session_error if self.session_error else 'Disconnected · displayed traces are historical. On connection, displacement traces appear before enabling or setting rest.')
         if self.snapshot.get('faulted'):
             confirmed=[a['disable_confirmed'] for a in axes]
             self.notice_label.setText('FAULT: '+self.snapshot['fault_reason']+(' | DISABLE UNCONFIRMED — use power disconnect' if not all(confirmed) else ' | Both disables acknowledged'))
         elif time.monotonic()>self.notice_until:
-            self.notice_label.setText('Rest capture pending: waiting for stable feedback.' if self.snapshot.get('pending_reference') else 'Jog needs Enable only. Set rest for referenced targets; physical lengths enable mean/difference control.')
+            self.notice_label.setText(self.session_error or ('Connecting: waiting for selected motor IDs to acknowledge and return encoder readings.' if self.worker and not self.connection_ready else 'Rest capture pending: waiting for stable feedback.' if self.snapshot.get('pending_reference') else 'Jog needs Enable only. Set rest for referenced targets; physical lengths enable mean/difference control.'))
         p=self.snapshot.get('procedure',{})
         if p: self.trial_status.setText(f'{p["phase"]} · step {p["step"]} of {p["total"]}')
         timing=[]

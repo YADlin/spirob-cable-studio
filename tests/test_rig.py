@@ -238,7 +238,7 @@ class ConfigAndRecordingTests(unittest.TestCase):
 
     def test_shared_port_uses_one_modbus_client_distinct_ids(self):
         cfg=RigSettings.demo()
-        with patch('pymodbus.client.ModbusSerialClient') as cls:
+        with patch('spirob_cable.transport.BoundedSerialClient') as cls:
             drives=make_drives(cfg,False,NullRecorder())
             self.assertEqual(cls.call_count,1); self.assertIs(drives[0].client,drives[1].client)
             self.assertTrue(drives[0].owns_client); self.assertFalse(drives[1].owns_client)
@@ -247,7 +247,7 @@ class ConfigAndRecordingTests(unittest.TestCase):
 
     def test_separate_ports_use_separate_clients(self):
         cfg=RigSettings.demo(); cfg=replace(cfg,axes=(cfg.axes[0],replace(cfg.axes[1],port='SECOND')))
-        with patch('pymodbus.client.ModbusSerialClient') as cls:
+        with patch('spirob_cable.transport.BoundedSerialClient') as cls:
             make_drives(cfg,False,NullRecorder()); self.assertEqual(cls.call_count,2)
 
     def test_recording_before_rest_and_pair_skew_review(self):

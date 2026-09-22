@@ -25,16 +25,16 @@ class SerialDrive:
 
     def __init__(self, settings, journal, client=None):
         from pymodbus import FramerType
-        from pymodbus.client import ModbusSerialClient
+        from .transport import BoundedSerialClient
         self.settings, self.journal = settings, journal
         self.owns_client = client is None
-        self.client = client if client is not None else ModbusSerialClient(
+        self.client = client if client is not None else BoundedSerialClient(
             port=settings.port, framer=FramerType.ASCII, baudrate=9600,
             bytesize=8, parity="N", stopbits=1, timeout=0.3, retries=0)
 
     def open(self):
         if not self.client.connected and not self.client.connect():
-            raise DriveFault("Cannot open serial port. Check path and dialout permissions")
+            raise DriveFault(f"Cannot open {self.settings.port}; see terminal for the USB/OS error")
 
     def close(self):
         if self.owns_client:
@@ -44,10 +44,13 @@ class SerialDrive:
         # Prevent PyModbus silently reopening after a known disconnect.
         if not self.client.connected:
             raise DriveFault("Serial port disconnected")
-        r = self.client.read_holding_registers(address=address, count=1,
-                                             device_id=self.settings.device_id)
+        try:
+            r = self.client.read_holding_registers(address=address, count=1,
+                                                 device_id=self.settings.device_id)
+        except Exception as exc:
+            raise DriveFault(f"ID {self.settings.device_id} on {self.settings.port}, read {address}: {exc}") from exc
         if r is None or r.isError() or len(r.registers) != 1:
-            raise DriveFault(f"Invalid read at {address}: {r}")
+            raise DriveFault(f"ID {self.settings.device_id}: invalid read at {address}: {r}")
         return r.registers[0]
 
     def write(self, address, value, emergency=False):
@@ -60,10 +63,13 @@ class SerialDrive:
                 if not emergency:
                     raise
         record("write_requested")
-        r = self.client.write_register(address=address, value=value,
-                                      device_id=self.settings.device_id)
+        try:
+            r = self.client.write_register(address=address, value=value,
+                                          device_id=self.settings.device_id)
+        except Exception as exc:
+            raise DriveFault(f"ID {self.settings.device_id} on {self.settings.port}, write {address}: {exc}") from exc
         if r is None or r.isError() or r.address != address or r.registers != [value]:
-            raise DriveFault(f"Write not acknowledged at {address}: {r}")
+            raise DriveFault(f"ID {self.settings.device_id}: write not acknowledged at {address}: {r}")
         record("write_acknowledged")
 
     def position(self):
