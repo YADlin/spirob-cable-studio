@@ -51,37 +51,46 @@ At 5 mm/s the command is 348 motor RPM, 3.48 output RPM and nominally 4.9935 mm/
 
 ## Mean controls common length; difference controls redistribution
 
-Imagine L1 and L2 as two numbers on rulers. Their centre is A. Their departures from that centre are +D and −D:
+Imagine L1 and L2 as two numbers on rulers. Their centre is the mean. Their separation is the full difference displayed in the Lengths tab:
 
 ```text
-L1 = A + D
-L2 = A - D
+Mean = (L1 + L2) / 2
+Difference = L1 - L2
+L1 = Mean + Difference/2
+L2 = Mean - Difference/2
 ```
 
-A change in A adds the same amount to both lengths. A change in D adds to one and subtracts from the other. These are cable coordinates; how the SpiRob moves in space must be observed or modelled separately.
+A change in mean adds the same amount to both target lengths. Increasing difference by 2 mm adds 1 mm to cable 1 and subtracts 1 mm from cable 2. These are cable coordinates; how the SpiRob moves in space must be observed or modelled separately.
 
 In the demo:
 
 1. Connect, then Enable at rest. Both simulated rest lengths are 220 mm.
-2. Open A / D. Set A = 0.220 m and D = 10 mm. Apply both gives 230 and 210 mm.
-3. Set A = 0.180 m. Apply A keeps the measured D, giving approximately 190 and 170 mm.
-4. Set D = −5 mm. Apply D keeps the measured mean, giving approximately 175 and 185 mm.
-5. Try Apply both with A = 0.180 m and D = 40 mm. It is rejected because cable 2 would be 140 mm, below its 150 mm lower bound.
+2. Open Lengths. Mean 0.220 m and difference 0 give equal 0.220 m targets. Numeric edits preview; Move both cables executes.
+3. Set difference to +20 mm. Targets show 0.230 and 0.210 m. Move both cables, or use the slider with Move when a slider is released selected.
+4. Set mean to 0.180 m. The entered difference stays +20 mm, so targets show 0.190 and 0.170 m.
+5. Set difference to −10 mm. Targets show 0.175 and 0.185 m.
+6. Directly enter targets 0.240 and 0.200 m. Mean updates to 0.220 m and difference to +40 mm.
+7. Equal lengths sets the difference to zero at the entered mean. Click Move both cables to execute. Copy live lengths also only changes the preview.
+8. Mean 0.180 m with difference +80 mm is rejected because cable 2 would be 0.140 m, below its 0.150 m lower bound.
 
-These examples interpret your 0.22/0.18 values as metres. The half-difference editor explicitly uses millimetres. If you prefer to specify the full difference Δ, compute D = Δ/2 first.
+These examples interpret 0.22/0.18 as metres. Live values come from encoders and spool calibration; targets are desired lengths, not measurements. Sliders step by 0.1 mm, while numeric fields allow finer entry subject to encoder quantization. Rest capture initializes the editors from both live lengths, including unequal lengths. Later feedback updates live displays without replacing your draft.
 
-With unequal physical rests, bounds are not symmetric about D = 0. At a proposed mean A:
+With unequal physical rests, bounds are not symmetric about zero difference. At a proposed mean A, in millimetres:
 
 ```text
-D_min = max(L1_rest − 70 − A, A − L2_rest − 70)
-D_max = min(L1_rest + 70 − A, A − L2_rest + 70)
+Difference_min = 2 * max(L1_rest − 70 − A, A − L2_rest − 70)
+Difference_max = 2 * min(L1_rest + 70 − A, A − L2_rest + 70)
 ```
 
-If D_min exceeds D_max, no pair at that mean fits both windows. The UI shows the permissible D interval.
+If the minimum exceeds the maximum, no pair at that mean fits both windows. Slider bounds show the permissible interval. Invalid numeric targets disable Move both cables. Each slider requires both cables enabled, referenced and stationary; you do not build up a queue of moves while dragging.
+
+The Trials table also displays full difference. Existing procedure files and research logs retain the earlier HALF-difference D in millimetres; load/save converts automatically, so existing files keep their meaning.
 
 ## Why the path is not exactly synchronized
 
-Both endpoint counts and speed settings are checked before dispatch. However, sending the cable-1 target and cable-2 target takes separate transactions. If cable 1 accepts its target and cable 2 then fails, cable 1 may already have begun moving. The fault response attempts to disable both drives and clears both references. There is no software rollback of physical motion.
+Both endpoint counts and speed settings are checked before dispatch. Both low target words are written first; their high words then trigger the moves in quick succession. This removes an intervening low-word write and redundant enable write from the gap between starts. It does not wait for cable 1 to arrive before starting cable 2. If cable 1 accepts its commit and cable 2 then fails, cable 1 may already have begun moving. The fault response attempts to disable both drives and clears both references. There is no software rollback of physical motion.
+
+The panel shows the host time between the two commit requests, also recorded in pair_dispatched events. This is not an encoder-measured start delay. At 9600 baud the remaining write-and-acknowledgement transaction normally takes tens of milliseconds; very short moves may still finish within that interval. Physical validation is necessary to measure actual overlap.
 
 Equal cable speed commands also do not guarantee equal durations for different travel distances. This application does not yet generate a common time-parameterized trajectory or provide a hardware synchronized start. Use the graphs and per-axis timestamps to quantify transient mean/difference error if your experiment depends on it.
 
@@ -97,4 +106,4 @@ Apply a coefficient only after disconnecting, then save, reconnect and re-refere
 
 ## Reading the source
 
-Read `model.py` for units, `config.py` for A/D conversion, `drive.py` for register transactions, `rig.py` for movement authorization, `worker.py` for sequencing and stop priority, `records.py` for timing/data, then `ui.py` for controls. `procedure.py` implements move–settle–hold experiments. `analysis.py` and `review.py` contain offline CSV operations.
+Read `model.py` for units, `config.py` for internal A/D conversion, `drive.py` for stage/commit transactions, `rig.py` for movement authorization, `worker.py` for sequencing and stop priority, `records.py` for timing/data, `pair_controls.py` for the target editor, then `ui.py` for integration. `procedure.py` implements move–settle–hold experiments. `analysis.py` and `review.py` contain offline CSV operations.

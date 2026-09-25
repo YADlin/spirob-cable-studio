@@ -83,14 +83,29 @@ class SerialDrive:
         raise DriveFault("Inconsistent position words")
 
     def target(self, count, cancelled=lambda: False):
+        return self.stage_target(count, cancelled) and self.commit_target(count, cancelled)
+
+    def stage_target(self, count, cancelled=lambda: False):
+        """Write only the low word; RMCS-2303 commits on the high-word write."""
         signed_count(count)
+        self._staged_target = None
         if cancelled():
             return False
-        unsigned = count & 0xFFFFFFFF
-        self.write(16, unsigned & 0xFFFF)
-        if cancelled():  # Do not commit if STOP arrived during the low-word write.
+        self.write(16, count & 0xFFFF)
+        self._staged_target = count
+        return not cancelled()
+
+    def commit_target(self, count, cancelled=lambda: False):
+        signed_count(count)
+        if cancelled():
+            self._staged_target = None
             return False
-        self.write(18, unsigned >> 16)
+        if getattr(self, '_staged_target', None) != count:
+            raise DriveFault('Target must be staged before commit')
+        try:
+            self.write(18, (count & 0xFFFFFFFF) >> 16)
+        finally:
+            self._staged_target = None
         return True
 
     def disable(self):
@@ -165,11 +180,25 @@ class DemoDrive:
         return round(self.count)
 
     def target(self, count, cancelled=lambda: False):
+        return self.stage_target(count, cancelled) and self.commit_target(count, cancelled)
+
+    def stage_target(self, count, cancelled=lambda: False):
         signed_count(count)
+        self._staged_target = None
         if cancelled():
             return False
+        self._staged_target = count
+        return True
+
+    def commit_target(self, count, cancelled=lambda: False):
+        if cancelled():
+            self._staged_target = None
+            return False
+        if getattr(self, '_staged_target', None) != count:
+            raise DriveFault('Target must be staged before commit')
         self.position()
         self.goal = float(count)
+        self._staged_target = None
         self.journal.event("demo_target", count=count)
         return True
 

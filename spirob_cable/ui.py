@@ -12,7 +12,8 @@ from zipfile import ZipFile, ZIP_DEFLATED
 from PySide6 import QtCore, QtGui, QtWidgets as Q
 import pyqtgraph as pg
 import pyqtgraph.exporters
-from .config import RigSettings, lengths_from_modes, difference_bounds
+from .config import RigSettings
+from .pair_controls import PairControls
 from .model import Settings, Rejected, finite
 from .rig import FRESH_SECONDS
 from .worker import Worker
@@ -56,7 +57,7 @@ class Studio(Q.QMainWindow):
         if demo: cfg=RigSettings.demo()
         self.cfg=cfg
         pg.setConfigOptions(foreground='#17364a',antialias=True)
-        self.setWindowTitle('SpiRob Cable Studio 3.0'+(' — OFFLINE DEMO' if demo else ''))
+        self.setWindowTitle('SpiRob Cable Studio 3.1'+(' — OFFLINE DEMO' if demo else ''))
         self.resize(1420,900); self.setMinimumSize(1060,720)
         self.build(); self.fill(cfg); self.refresh_controls()
         self.timer=QtCore.QTimer(self); self.timer.timeout.connect(self.refresh); self.timer.start(50)
@@ -79,7 +80,7 @@ class Studio(Q.QMainWindow):
         split=Q.QSplitter(QtCore.Qt.Orientation.Horizontal); split.setChildrenCollapsible(False); outer.addWidget(split,1)
         self.controls=Q.QTabWidget(); self.controls.setMinimumWidth(365); self.controls.setMaximumWidth(430)
         self.controls.addTab(self.build_manual(),'Jog')
-        self.controls.addTab(self.build_pair(),'A / D')
+        self.controls.addTab(self.build_pair(),'Lengths')
         self.controls.addTab(self.build_setup(),'Setup')
         self.controls.addTab(self.build_experiments(),'Trials')
         self.controls.addTab(self.build_review_controls(),'Review')
@@ -128,7 +129,7 @@ class Studio(Q.QMainWindow):
             w['plus']=button('+ Pay out',lambda _=False,i=i:self.jog(i,1))
             g.addWidget(w['minus'],4,0); g.addWidget(w['plus'],4,1)
             w['rest_length']=number(0,0,10000,2,' mm'); w['rest_length'].setSpecialValueText('Length unknown')
-            w['rest_length'].setToolTip('Measured free cable length at the physical rest configuration. Required for absolute A/D control.')
+            w['rest_length'].setToolTip('Measured free cable length at the physical rest configuration. Required for paired length control.')
             w['rest_length'].setPrefix('Rest L: ')
             w['rest']=button('Set rest here',lambda _=False,i=i:self.set_rest(i))
             g.addWidget(w['rest_length'],5,0); g.addWidget(w['rest'],5,1)
@@ -143,24 +144,9 @@ class Studio(Q.QMainWindow):
         layout.addStretch(); return scroll(page)
 
     def build_pair(self):
-        page=Q.QWidget(); layout=Q.QVBoxLayout(page)
-        layout.addWidget(label('MEAN LENGTH + HALF-DIFFERENCE'))
-        layout.addWidget(label('A = (L₁ + L₂) / 2\nD = (L₁ − L₂) / 2\nL₁ = A + D     L₂ = A − D',True))
-        form=Q.QFormLayout()
-        self.mean=number(.220,.001,10,4,' m'); self.mean.setSingleStep(.001)
-        self.diff=number(0,-1000,1000,2,' mm'); self.diff.setSingleStep(1)
-        self.pair_speed=number(5,.05,20,2,' mm/s')
-        form.addRow('Mean A · metres',self.mean); form.addRow('Half-difference D',self.diff); form.addRow('Cable speed ceiling',self.pair_speed)
-        layout.addLayout(form)
-        self.pair_preview=label('',True); layout.addWidget(self.pair_preview)
-        self.mean.valueChanged.connect(self.update_pair_preview); self.diff.valueChanged.connect(self.update_pair_preview)
-        self.apply_mean=button('Apply A · keep current D',lambda:self.move_modes('mean'),'primary')
-        self.apply_diff=button('Apply D · keep current A',lambda:self.move_modes('difference'),'primary')
-        self.apply_both=button('Apply both entered values',lambda:self.move_modes('both'))
-        self.use_current=button('Copy measured A and D into fields',self.copy_modes)
-        for w in (self.apply_mean,self.apply_diff,self.apply_both,self.use_current): layout.addWidget(w)
-        layout.addWidget(label('0.220 m = 220 mm. D is HALF the length difference: D = 10 mm means L₁ − L₂ = 20 mm.\n\nApply A preserves measured D; Apply D preserves measured A. Both motors must be stationary and referenced. Endpoints are checked together. Starts and feedback are sequential, not hardware synchronized.',True))
-        layout.addStretch(); return scroll(page)
+        self.pair = PairControls()
+        self.pair.move_requested.connect(self.move_pair)
+        return scroll(self.pair)
 
     def build_setup(self):
         page=Q.QWidget(); layout=Q.QVBoxLayout(page)
@@ -317,24 +303,14 @@ class Studio(Q.QMainWindow):
     def move_axis(self,i,value=None):
         w=self.manual[i]; self.command('move',{'axis':i,'value_mm':w['target'].value() if value is None else value,'speed_mm_s':w['target_speed'].value()})
 
-    def move_modes(self,mode):
-        self.command('modes',{'mode':mode,'mean_mm':self.mean.value()*1000,'difference_mm':self.diff.value(),'speed_mm_s':self.pair_speed.value()})
-
-    def copy_modes(self):
-        c=self.snapshot.get('coordinates')
-        if c: self.mean.setValue(c['mean_mm']/1000); self.diff.setValue(c['half_difference_mm'])
-
-    def update_pair_preview(self,*_):
-        if not hasattr(self,'pair_preview'): return
-        a,d=self.mean.value()*1000,self.diff.value(); l1,l2=lengths_from_modes(a,d)
-        text=f'Apply both → L₁ {l1:.2f} mm · L₂ {l2:.2f} mm'
-        axes=self.snapshot.get('axes',[])
-        if len(axes)==2 and all(x.get('rest_length_mm') is not None for x in axes):
-            low,high=difference_bounds(a,*[x['rest_length_mm'] for x in axes])
-            text+=f'\nFor this A, allowed D: {low:.2f} to {high:.2f} mm.' if low<=high else '\nThis mean is outside the joint travel window.'
-            if not low<=d<=high: text+='\nEntered pair would be rejected; neither target is sent.'
-        else: text+='\nSet both physical rest lengths to enable A/D control.'
-        self.pair_preview.setText(text)
+    def move_pair(self):
+        if not self.pair.ready or not self.pair.target_valid:
+            return
+        mean, difference = self.pair.targets()
+        # The editor uses the FULL difference. Internal modes and existing
+        # procedure files retain half-difference for backward compatibility.
+        self.command('modes',{'mode':'both','mean_mm':mean,'difference_mm':difference/2,
+                              'speed_mm_s':self.pair.speed.value()})
 
     def capture(self,w):
         i=self.cal_axis.currentIndex(); axes=self.snapshot.get('axes',[])
@@ -357,7 +333,7 @@ class Studio(Q.QMainWindow):
         if not hasattr(self,'trial_table'): return
         pair=self.trial_kind.currentIndex()==0
         self.trial_table.setColumnCount(3 if pair else 2)
-        self.trial_table.setHorizontalHeaderLabels(['A (m)','D (mm)','Hold (s)'] if pair else ['From rest (mm)','Hold (s)'])
+        self.trial_table.setHorizontalHeaderLabels(['Mean (m)','L₁ − L₂ (mm)','Hold (s)'] if pair else ['From rest (mm)','Hold (s)'])
         self.trial_table.setRowCount(0)
         for value in (0,1,0): self.add_trial_row(False,[.220,value,1] if pair else [value,1])
 
@@ -368,7 +344,8 @@ class Studio(Q.QMainWindow):
         row=self.trial_table.rowCount(); self.trial_table.insertRow(row)
         for j,val in enumerate(values):
             last=j==len(values)-1
-            widget=number(val,0 if last else .001 if pair and j==0 else -1000,120 if last else 10 if pair and j==0 else 1000,4 if pair and j==0 else 2)
+            bound=2000 if pair else 1000
+            widget=number(val,0 if last else .001 if pair and j==0 else -bound,120 if last else 10 if pair and j==0 else bound,4 if pair and j==0 else 2)
             self.trial_table.setCellWidget(row,j,widget)
         self.trial_table.setRowHeight(row,38)
 
@@ -379,7 +356,9 @@ class Studio(Q.QMainWindow):
         pair=self.trial_kind.currentIndex()==0
         rows=[[self.trial_table.cellWidget(i,j).value() for j in range(self.trial_table.columnCount())] for i in range(self.trial_table.rowCount())]
         if pair:
-            for row in rows: row[0]*=1000
+            for row in rows:
+                row[0]*=1000
+                row[1]/=2  # Legacy procedure files store HALF-difference.
         return {'kind':['pair','cable1','cable2'][self.trial_kind.currentIndex()], 'rows':rows,
                 'repeats':self.repeats.value(),'speed_mm_s':self.trial_speed.value()}
 
@@ -408,7 +387,7 @@ class Studio(Q.QMainWindow):
                 if type(data['repeats']) is not int or not 1<=data['repeats']<=20 or len(data['rows'])*data['repeats']>200: raise Rejected('Invalid repeat count')
                 if not .05<=finite(data['speed_mm_s'],'Speed')<=20: raise Rejected('Invalid speed')
                 self.trial_kind.setCurrentIndex(kind); self.trial_table.setRowCount(0)
-                for row in data['rows']: self.add_trial_row(False,[row[0]/1000,*row[1:]] if kind==0 else row)
+                for row in data['rows']: self.add_trial_row(False,[row[0]/1000,2*row[1],row[2]] if kind==0 else row)
                 self.repeats.setValue(data['repeats']); self.trial_speed.setValue(data['speed_mm_s'])
                 self.notice('Procedure loaded for review. No motor commands sent.')
             except Exception as exc: self.notice(str(exc))
@@ -508,8 +487,8 @@ class Studio(Q.QMainWindow):
         self.enable_rest_button.setEnabled(free and len(axes)==count and all(fresh) and all(a['state']=='DISABLED' for a in axes))
         self.stop_button.setEnabled(connected and not self.closing); self.release_all_button.setEnabled(connected and not self.closing)
         both_idle=free and len(axes)==2 and all(fresh) and all(a['state']=='HOLDING' for a in axes) and self.snapshot.get('coordinates') is not None
-        for w in (self.apply_mean,self.apply_diff,self.apply_both,self.use_current): w.setEnabled(bool(both_idle))
-        for w in (self.mean,self.diff,self.pair_speed): w.setEnabled(not connected or bool(both_idle))
+        pair_valid=len(axes)==2 and all(fresh) and not fault
+        self.pair.update_feedback(axes,pair_valid,both_idle,not connected or bool(both_idle))
         self.axis_count.setEnabled(not connected); self.import_button.setEnabled(not connected)
         for d in self.setup:
             for w in d.values(): w.setEnabled(not connected)
@@ -524,7 +503,6 @@ class Studio(Q.QMainWindow):
         kind=self.trial_kind.currentIndex(); trial_ok=bool(both_idle) if kind==0 else free and kind-1<len(axes) and kind>0 and axes[kind-1]['state']=='HOLDING' and axes[kind-1]['rest_count'] is not None
         self.start_trial_button.setEnabled(bool(trial_ok)); self.note_button.setEnabled(connected and not self.pending and not fault)
         for i,b in enumerate(self.demo_fault_buttons): b.setEnabled(connected and i<len(axes) and free)
-        self.update_pair_preview()
 
     def refresh(self):
         if self.worker: self.worker.heartbeat=time.monotonic()
@@ -540,6 +518,8 @@ class Studio(Q.QMainWindow):
             elif kind=='event':
                 d=item['data']
                 if d['event']=='connected_disabled': self.connection_ready=True
+                if d['event']=='pair_dispatched' and 'commit_start_gap_s' in d:
+                    self.pair.timing.setText(f'Last paired move: {1000*d["commit_start_gap_s"]:.1f} ms between start-write requests. This is host timing, not measured motor start skew.')
                 if d['event']!='write_requested': self.activity.appendPlainText(f'{d["t_s"]:.3f}s '+json.dumps({k:v for k,v in d.items() if k!='t_s'}))
             elif kind=='command_done': self.pending=False
             elif kind=='rejected':
@@ -559,7 +539,7 @@ class Studio(Q.QMainWindow):
             absolute=f'{a["absolute_mm"]:.3f} mm length' if a['absolute_mm'] is not None else 'physical length not referenced'
             lines.append(f'Cable {i+1}  {a["state"]}  ·  Δconnection {a["connection_mm"]:+.3f} mm  ·  {absolute}  ·  count {a["count"]}')
         c=self.snapshot.get('coordinates')
-        if c: lines.append(f'Mean A {c["mean_mm"]/1000:.4f} m   |   Half-difference D {c["half_difference_mm"]:+.3f} mm   |   sequential-read skew {c["skew_s"]*1000:.0f} ms')
+        if c: lines.append(f'Mean {c["mean_mm"]/1000:.4f} m   |   Difference L₁ − L₂ {2*c["half_difference_mm"]:+.3f} mm   |   sequential-read skew {c["skew_s"]*1000:.0f} ms')
         if lines: self.readout.setText('\n'.join(lines))
         elif not self.worker:
             self.readout.setText('Connection failed or faulted: '+self.session_error if self.session_error else 'Disconnected · displayed traces are historical. On connection, displacement traces appear before enabling or setting rest.')

@@ -69,17 +69,17 @@ class UITests(unittest.TestCase):
         self.shot('setup_jog.png')
 
     def test_enable_at_rest_modes_limits_layout_and_review(self):
-        self.ready(); self.w.controls.setCurrentIndex(1); self.w.pair_speed.setValue(20)
-        self.w.mean.setValue(.220); self.w.diff.setValue(10); self.w.apply_both.click()
+        self.ready(); self.w.controls.setCurrentIndex(1); self.w.pair.speed.setValue(20)
+        self.w.pair.mean.setValue(.220); self.w.pair.difference.setValue(20); self.w.pair.apply.click()
         self.until(lambda:not self.w.pending and all(a['state']=='HOLDING' for a in self.w.snapshot['axes']) and self.w.snapshot['coordinates']['half_difference_mm']>9.9)
-        self.w.mean.setValue(.180); self.w.apply_mean.click()
+        self.w.pair.mean.setValue(.180); self.w.pair.apply.click()
         self.until(lambda:not self.w.pending and all(a['state']=='HOLDING' for a in self.w.snapshot['axes']) and self.w.snapshot['coordinates']['mean_mm']<180.1)
         lengths=[a['absolute_mm'] for a in self.w.snapshot['axes']]
         self.assertAlmostEqual(lengths[0],190,delta=.002); self.assertAlmostEqual(lengths[1],170,delta=.002)
         self.w.frame.setCurrentIndex(2); self.w.plots.auto_range(); self.shot('mean_difference.png')
-        self.w.diff.setValue(40); self.w.apply_both.click()
-        self.until(lambda:not self.w.pending)
-        self.assertIn('Cable 2',self.w.notice_label.text())
+        self.w.pair.difference.setValue(80)
+        self.assertFalse(self.w.pair.apply.isEnabled())
+        self.assertIn('Cable 2',self.w.pair.status.text().replace('cable 2', 'Cable 2'))
         self.assertFalse(self.w.snapshot.get('faulted'))
         self.w.resize(1080,760); QtTest.QTest.qWait(80); self.shot('small_layout.png')
         self.assertGreaterEqual(self.w.plots.graph.height(),430)
@@ -95,8 +95,58 @@ class UITests(unittest.TestCase):
         self.ready(); self.w.demo_fault_buttons[1].click()
         self.until(lambda:self.w.snapshot.get('faulted'))
         self.assertTrue(all(a['rest_count'] is None and not a['enabled'] for a in self.w.snapshot['axes']))
-        self.assertFalse(self.w.manual[0]['plus'].isEnabled()); self.assertFalse(self.w.apply_both.isEnabled())
+        self.assertFalse(self.w.manual[0]['plus'].isEnabled()); self.assertFalse(self.w.pair.apply.isEnabled())
         self.assertIn('UNCONFIRMED',self.w.notice_label.text())
+
+    def test_slider_drag_previews_once_and_release_starts_both_with_full_difference(self):
+        self.ready(); p=self.w.pair; p.speed.setValue(20)
+        self.w.controls.setCurrentIndex(1)
+        with patch.object(self.w.worker,'submit',wraps=self.w.worker.submit) as submit:
+            p.difference_slider.setSliderDown(True)
+            for value in (50,100,200): p.difference_slider.setValue(value)
+            self.assertEqual(p.difference.value(),20)
+            self.assertAlmostEqual(p.lengths[0].value(),.230)
+            self.assertAlmostEqual(p.lengths[1].value(),.210)
+            submit.assert_not_called()
+            p.difference_slider.setSliderDown(False)
+            submit.assert_called_once()
+            self.assertEqual(submit.call_args.args[1]['difference_mm'],10)
+        self.until(lambda:not self.w.pending and all(a['state']=='HOLDING' for a in self.w.snapshot['axes']) and self.w.snapshot['coordinates']['half_difference_mm']>9.9)
+        self.assertAlmostEqual(float(p.live[0].text()),.230,delta=.00002)
+        self.assertIn('Live difference',p.live_summary.text())
+        self.assertIn('ms between',p.timing.text())
+
+    def test_unequal_lengths_update_average_and_repeated_feedback_preserves_draft(self):
+        self.ready(); p=self.w.pair
+        p.lengths[0].setValue(.240); p.lengths[1].setValue(.200)
+        self.assertAlmostEqual(p.mean.value(),.220)
+        self.assertAlmostEqual(p.difference.value(),40)
+        self.w.refresh()
+        self.assertAlmostEqual(p.difference.value(),40)
+        p.mean.setValue(.180)
+        self.assertAlmostEqual(p.lengths[0].value(),.200)
+        self.assertAlmostEqual(p.lengths[1].value(),.160)
+        p.equal.click()
+        self.assertEqual(p.difference.value(),0)
+        self.assertAlmostEqual(p.lengths[0].value(),.180)
+        self.assertAlmostEqual(p.lengths[1].value(),.180)
+        self.assertFalse(self.w.pending)
+
+    def test_unequal_rest_lengths_initialize_targets_and_slider_limits(self):
+        self.w.manual[0]['rest_length'].setValue(230)
+        self.w.manual[1]['rest_length'].setValue(210)
+        self.ready(); p=self.w.pair
+        self.assertAlmostEqual(p.mean.value(),.220)
+        self.assertAlmostEqual(p.difference.value(),20)
+        # At mean 220: L1 >=160 and L2 >=140, so difference spans -120..160.
+        self.assertEqual((p.difference_slider.minimum(),p.difference_slider.maximum()),(-1200,1600))
+        p.auto.setChecked(False)
+        with patch.object(self.w.worker,'submit') as submit:
+            p.mean_slider.setSliderDown(True); p.mean_slider.setValue(1800)
+            p.mean_slider.setSliderDown(False)
+            submit.assert_not_called()
+        self.assertAlmostEqual(p.lengths[0].value(),.190)
+        self.assertAlmostEqual(p.lengths[1].value(),.170)
 
     def test_duplicate_ids_block_connect_and_old_config_imports_single(self):
         self.w.setup[1]['device_id'].setValue(1)
@@ -124,6 +174,16 @@ class UITests(unittest.TestCase):
         self.w.start_trial_button.click(); self.until(lambda:self.w.snapshot.get('procedure',{}).get('active'))
         self.w.stop_button.click(); self.until(lambda:self.w.snapshot.get('procedure',{}).get('phase')=='ABORTED' and all(a['state']=='HOLDING' for a in self.w.snapshot['axes']))
         self.assertTrue(all(a['enabled'] for a in self.w.snapshot['axes']))
+
+    def test_legacy_trial_half_difference_round_trips_through_full_difference_table(self):
+        path=self.root/'legacy_trial.json'
+        data={'kind':'pair','rows':[[220,10,1],[180,-5,2]],'repeats':1,'speed_mm_s':5}
+        path.write_text(json.dumps(data))
+        with patch.object(Q.QFileDialog,'getOpenFileName',return_value=(str(path),'')):
+            self.w.load_trial()
+        self.assertEqual(self.w.trial_table.cellWidget(0,1).value(),20)
+        self.assertEqual(self.w.trial_table.cellWidget(1,1).value(),-10)
+        self.assertEqual(self.w.trial_data(),data)
 
     def test_startup_fault_survives_worker_close_and_notice_expiry(self):
         from spirob_cable.drive import DemoDrive, DriveFault

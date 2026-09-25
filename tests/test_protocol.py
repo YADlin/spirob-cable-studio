@@ -88,6 +88,16 @@ class ProtocolTests(unittest.TestCase):
         self.assertFalse(self.d.target(100, stop))
         self.assertEqual(self.d.write.call_count, 1)
 
+    def test_commit_requires_matching_staged_target_and_cannot_be_reused(self):
+        self.d.write=Mock()
+        with self.assertRaises(DriveFault): self.d.commit_target(100)
+        self.d.write.assert_not_called()
+        self.d.stage_target(100)
+        with self.assertRaises(DriveFault): self.d.commit_target(101)
+        self.d.commit_target(100)
+        with self.assertRaises(DriveFault): self.d.commit_target(100)
+        self.assertEqual([call.args[0] for call in self.d.write.call_args_list],[16,18])
+
     def test_high_low_high_retry_and_signed_feedback(self):
         self.d.read = Mock(side_effect=[0, 65535, 1, 1, 4, 1])
         self.assertEqual(self.d.position(), 65540)

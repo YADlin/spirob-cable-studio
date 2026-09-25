@@ -1,6 +1,6 @@
 [project]
 name = "spirob-cable-studio"
-version = "3.0.0"
+version = "3.1.0"
 description = "One- and two-cable control and research workstation"
 requires-python = ">=3.12,<3.14"
 dependencies = [

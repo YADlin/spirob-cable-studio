@@ -117,9 +117,9 @@ class RigTests(unittest.TestCase):
     def test_invalid_second_target_rejects_both_before_writes(self):
         self.ready()
         for d in self.drives:
-            d.target=Mock(wraps=d.target); d.set_speed=Mock(wraps=d.set_speed)
+            d.stage_target=Mock(wraps=d.stage_target); d.set_speed=Mock(wraps=d.set_speed)
         with self.assertRaises(Rejected): self.r.move_modes('both',180,40,10)  # L2 140 <150.
-        for d in self.drives: d.target.assert_not_called(); d.set_speed.assert_not_called()
+        for d in self.drives: d.stage_target.assert_not_called(); d.set_speed.assert_not_called()
 
     def test_new_rest_moves_window_and_full_turns_are_retained(self):
         self.enable(); self.r.jog(0,20,20); self.settle(); self.r.set_rest(0,220)
@@ -131,13 +131,61 @@ class RigTests(unittest.TestCase):
 
     def test_speed_readback_failure_prevents_both_target_commits(self):
         self.ready()
-        self.drives[0].target=Mock(); self.drives[1].target=Mock()
+        self.drives[0].stage_target=Mock(); self.drives[1].stage_target=Mock()
         self.drives[1].set_speed=Mock(side_effect=DriveFault('readback'))
         with self.assertRaises(DriveFault): self.r.move_modes('both',230,0,10)
-        self.drives[0].target.assert_not_called(); self.drives[1].target.assert_not_called()
+        self.drives[0].stage_target.assert_not_called(); self.drives[1].stage_target.assert_not_called()
+
+    def test_pair_wire_order_is_both_low_words_then_back_to_back_high_words(self):
+        from types import MethodType
+        self.ready(); writes=[]
+        for index, drive in enumerate(self.drives):
+            drive.stage_target=MethodType(SerialDrive.stage_target, drive)
+            drive.commit_target=MethodType(SerialDrive.commit_target, drive)
+            def write(address, value, index=index):
+                writes.append((index, address, value)); self.now += .034
+            drive.write=write
+            drive.enable=Mock(side_effect=AssertionError('Redundant enable between target commits'))
+        self.r.move_modes('both',230,0,5)
+        self.assertEqual([(axis,address) for axis,address,_ in writes],
+                         [(0,16),(1,16),(0,18),(1,18)])
+        self.assertEqual([a.state for a in self.r.axes], ['MOVING','MOVING'])
+        self.assertAlmostEqual(self.log.event.call_args.kwargs['commit_start_gap_s'], .034)
+
+    def test_second_low_word_failure_prevents_both_target_commits(self):
+        self.ready()
+        self.drives[1].stage_target=Mock(side_effect=DriveFault('Low word failed'))
+        for drive in self.drives: drive.commit_target=Mock(wraps=drive.commit_target)
+        with self.assertRaises(DriveFault): self.r.move_modes('both',230,0,5)
+        for drive in self.drives: drive.commit_target.assert_not_called()
+
+    def test_stop_during_staging_prevents_both_target_commits(self):
+        self.ready(); stop=[False]; self.r.cancelled=lambda:stop[0]
+        stage=self.drives[1].stage_target
+        def interrupted(count,cancelled):
+            result=stage(count,cancelled); stop[0]=True; return result
+        self.drives[1].stage_target=interrupted
+        for drive in self.drives: drive.commit_target=Mock(wraps=drive.commit_target)
+        with self.assertRaises(Cancelled): self.r.move_modes('both',230,0,5)
+        for drive in self.drives: drive.commit_target.assert_not_called()
+
+    def test_motion_after_stop_preloads_hold_position_before_reenabling_position_mode(self):
+        self.ready(); self.r.move_modes('both',250,0,5)
+        self.poll(2); self.r.stop_all(); self.settle()
+        held=[a.count for a in self.r.axes]
+        for drive in self.drives:
+            drive.target=Mock(wraps=drive.target)
+            drive.enable=Mock(wraps=drive.enable)
+        self.r.move_modes('both',225,0,5)
+        for index,drive in enumerate(self.drives):
+            self.assertEqual(drive.target.call_args.args[0],held[index])
+            drive.enable.assert_called_once()
+        self.assertTrue(all(a.position_mode and a.state=='MOVING' for a in self.r.axes))
+        self.settle()
+        for a in self.r.axes: self.assertAlmostEqual(a.absolute(),225,delta=.002)
 
     def test_partial_target_failure_attempts_both_disables_and_latches_fault(self):
-        self.ready(); self.drives[1].target=Mock(side_effect=DriveFault('second target lost'))
+        self.ready(); self.drives[1].commit_target=Mock(side_effect=DriveFault('second target lost'))
         for d in self.drives: d.disable=Mock(wraps=d.disable)
         try: self.r.move_modes('both',230,0,10)
         except DriveFault as exc: self.r.fault(exc)
@@ -154,12 +202,12 @@ class RigTests(unittest.TestCase):
 
     def test_stop_between_target_commits_does_not_dispatch_second(self):
         self.ready(); stop=[False]; self.r.cancelled=lambda:stop[0]
-        target=self.drives[0].target
+        target=self.drives[0].commit_target
         def first(count,cancel):
             result=target(count,cancel); stop[0]=True; return result
-        self.drives[0].target=first; self.drives[1].target=Mock()
+        self.drives[0].commit_target=first; self.drives[1].commit_target=Mock()
         with self.assertRaises(Cancelled): self.r.move_modes('both',230,0,10)
-        self.drives[1].target.assert_not_called()
+        self.drives[1].commit_target.assert_not_called()
         stop[0]=False; self.r.stop_all(); self.settle()
         self.assertTrue(all(a.state=='HOLDING' for a in self.r.axes))
 

@@ -1,4 +1,4 @@
-# Engineering record — 3.0.0
+# Engineering record — 3.1.0
 
 ## Hardware/protocol basis
 
@@ -18,9 +18,11 @@ Enable preloads the current stationary count before turning on the position loop
 
 ## Coordinated commands and failure semantics
 
-A/D transforms are invertible: A=(L1+L2)/2, D=(L1−L2)/2. A uses metres in the UI and millimetres in the backend/logs; D uses millimetres. Apply A preserves measured D at command processing; Apply D preserves measured A. Both axes must be stationary for pair requests.
+The UI uses mean A=(L1+L2)/2 and full difference delta=L1−L2. Editing one coordinate preserves the other entered coordinate; direct length edits recompute both. The single Move both cables action always sends the displayed pair. Slider release may invoke the same action, but dragging never dispatches intermediate values. Live feedback does not overwrite a draft except when a new physical reference is established. Both axes must be stationary for pair requests. Backend transforms, logs and saved procedures retain D=delta/2; the UI explicitly converts on submission and procedure load/save.
 
-All requested count endpoints, speeds and state requirements are checked before any target write. Speed writes are acknowledged and read back; verified unchanged speeds avoid redundant transactions. Cancellation during a speed write invalidates the cache. Targets then commit sequentially. A partial target failure triggers both-drive disable attempts and a latched fault. There is no atomic multi-drive commit, rollback, synchronized arrival or guarantee of constant A/D during transient motion. Combined A/D moves use the selected cable speed on each axis, not an interpolated trajectory.
+All requested count endpoints, speeds and state requirements are checked before any target write. Speed writes are acknowledged and read back; verified unchanged speeds avoid redundant transactions. Cancellation during a speed write invalidates the cache. Both low words are staged first; then both high words are committed back-to-back, with no polling or extra mode write between them. The RMCS-2303 manual, page 28, states that register 18 updates initiate movement. If either staging write fails, neither high-word commit is attempted. A partial commit failure triggers both-drive disable attempts and a latched fault. One serial transaction gap remains; short moves can still finish within it. There is no atomic multi-drive commit, rollback, synchronized arrival or guarantee of constant A/D during transient motion. Paired moves use the selected cable speed on each axis, not an interpolated trajectory.
+
+Axis state tracks whether the enabled drive is in position mode. STOP switches to torque hold; on the next move, the current stationary count is preloaded before position mode is restored. This prevents an old motion target from being resumed. Normal moves in position mode do not repeat the enable write. Stage/commit matching prevents an unstaged or already-used count from being committed through that API.
 
 Stop/release-all/disconnect are priority flags that clear the queued normal command. Cancellation is checked before register writes, between low/high target words and between axes. An in-flight serial transaction remains uninterruptible. Both stop/disable attempts are made even if the first fails. Logging failure cannot prevent the low-level emergency disable attempt. A serial stop/disable acknowledgement is not physical proof of stopped motion; stop settling uses encoder feedback, and no independent hardware safety function is added.
 
@@ -36,7 +38,7 @@ A constant circumference assumes single-layer winding and no slip. Counts alone 
 
 ## Validation
 
-48 local tests passed using fake register replies, a controllable clock, two simulated motors and actual Qt widgets/event loops. Coverage includes:
+68 local tests passed using fake register replies, a controllable clock, two simulated motors and actual Qt widgets/event loops. Coverage includes:
 
 - Counts/gear/sign arithmetic and complete turns; legacy configuration migration with no guessed second ID.
 - One client on a shared port, two clients on separate ports and distinct-ID rejection.
@@ -45,5 +47,7 @@ A constant circumference assumes single-layer winding and no slip. Counts alone 
 - Speed readback failure, stop during speed update, cancellation between commits, partial target failure, both-disable attempts and GUI-heartbeat loss.
 - Enable-at-rest capture/cancellation, procedure validation/completion/abort, recording before rest and pair timestamp skew.
 - Qt configuration import, manual/coordinate workflow, fault indication, review and a plot at least 430 pixels tall in a 1080 × 760 test window.
+- Mean/full-difference sliders, unequal length editing, preserving drafts during feedback, slider-release-only dispatch, and old procedure round trips.
+- Wire ordering (both low words before either high word), failure/cancellation during staging, and restoring position mode after STOP without resuming an old target.
 
 No hardware device was connected during development. Simulation is constant-speed and ideal; it does not model cable forces, acceleration, gearing compliance or friction. The GitHub Actions configuration is included but has not yet been executed on GitHub. The two-drive integration requires physical bench validation.

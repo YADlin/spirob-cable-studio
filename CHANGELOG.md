@@ -1,5 +1,21 @@
 # Changes
 
+## 3.1.0 — paired length controls
+
+- Replace separate A/D apply actions with one target pair, mean/full-difference
+  sliders, editable cable lengths and independent live feedback.
+- Slider release optionally sends one finite paired move; dragging only previews.
+  Numeric edits require Move both cables. Travel limits use each physical rest.
+- Stage both low target words before committing high words back-to-back. Remove
+  redundant enable writes in position mode; safely preload current position when
+  resuming from STOP's torque-hold mode.
+- Record and display the host gap between start-write requests. This reduces
+  serial start delay but does not promise hardware-synchronized starts or arrival.
+- Show full difference in the Trials table, retaining old half-difference values
+  in saved procedures and logs through explicit conversion.
+- This update is based on the version before the optional intermittent-diagnostics
+  patch; that patch is not required or included. Communication fault policy is unchanged.
+
 ## Unreleased — interface contrast fix
 
 - Apply a complete light Qt palette, including active, inactive and disabled states,

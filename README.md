@@ -1,10 +1,10 @@
 # SpiRob Cable Studio
 
-**Version 3.0.0 — one or two independently addressed RMCS-2303 cable actuators.**
+**Version 3.1.0 — one or two independently addressed RMCS-2303 cable actuators.**
 
-A Python desktop workstation using PySide6, PyQtGraph and PyModbus. It supports independent cable jogging, referenced length targets, mean/half-difference coordinates, finite experiments and timestamped research recordings. The RMCS drive closes the position loop; Python supplies targets and supervises motion.
+A Python desktop workstation using PySide6, PyQtGraph and PyModbus. It supports independent cable jogging, length sliders and numeric targets, mean/full-difference controls, finite experiments and timestamped research recordings. The RMCS drive closes the position loop; Python supplies targets and supervises motion.
 
-![Two-cable mean and half-difference control; offline simulation](docs/mean_difference.png)
+The **Lengths** tab shows mean/difference sliders, editable targets for each cable and live encoder-based length estimates beside them.
 
 ## Install beside the existing application
 
@@ -64,40 +64,42 @@ Each click makes one finite position move. The UI permits positive steps from 0.
 
 Cable speeds are 0.05–20 mm/s, with an additional 2000 base-motor-RPM application ceiling for small calibrations. These are software ceilings, not validated safe operating speeds for a loaded SpiRob. Speed changes apply to the next move; the running cable's speed fields are locked until it settles. Acceleration remains the imported raw driver setting.
 
-## Mean and half-difference control
+## Mean and difference control
 
 The interface uses:
 
 ```text
 A = (L1 + L2) / 2        mean cable length
-D = (L1 - L2) / 2        HALF the cable-length difference
-L1 = A + D
-L2 = A - D
+delta = L1 - L2          FULL cable-length difference
+L1 = A + delta/2
+L2 = A - delta/2
 ```
 
-**A is entered in metres; D is entered in millimetres.** Logs and backend calculations consistently use millimetres. Thus entering `A = 0.220 m` means 220 mm. A 10 mm half-difference means the full length difference is 20 mm.
+**Mean and individual lengths use metres; the full difference uses millimetres.** Thus 0.220 m means 220 mm. A +20 mm difference makes cable 1 10 mm longer than the mean and cable 2 10 mm shorter.
 
-| Mean A | Half-difference D | Cable 1 target | Cable 2 target |
+| Mean | Full difference L1 − L2 | Cable 1 target | Cable 2 target |
 | --- | --- | --- | --- |
 | 0.220 m | 0 mm | 220 mm | 220 mm |
-| 0.220 m | +10 mm | 230 mm | 210 mm |
-| 0.180 m | +10 mm | 190 mm | 170 mm |
-| 0.180 m | −5 mm | 175 mm | 185 mm |
+| 0.220 m | +20 mm | 230 mm | 210 mm |
+| 0.180 m | +20 mm | 190 mm | 170 mm |
+| 0.180 m | −10 mm | 175 mm | 185 mm |
 
-- **Apply A** preserves the presently measured D and changes the mean.
-- **Apply D** preserves the presently measured A and changes the half-difference.
-- **Apply both** uses both entered values.
-- **Copy measured A and D** fills the editors with the current measurements without moving anything.
+- **Mean slider/input** preserves the entered difference; **difference slider/input** preserves the entered mean.
+- **Cable 1/2 target inputs** update mean and difference automatically, including unequal cable lengths.
+- **Equal lengths** sets the target difference to zero at the entered mean. It changes the preview only.
+- **Copy live lengths** copies feedback into the targets without moving anything.
+- **Move both cables** sends the displayed target pair. Numeric edits alone do not command motion.
+- **Move when a slider is released** is enabled by default: dragging previews, release sends one finite paired move. Uncheck it to require the button. There is no stream or queue of intermediate slider positions.
 
-Both cables must be stationary and have known physical rest lengths. These controls also work when the two rest lengths differ. Each target is checked against that cable's own rest ±70 mm. With both rests 220 mm and A = 180 mm, D may only be between −30 and +30 mm. For example, D = 40 mm would command L2 = 140 mm; **both commands are rejected before either target is sent**.
+Both cables must be enabled, stationary and have known physical rest lengths. When a new reference is established the targets initialize from the live lengths, which may differ. Each target is checked against that cable's own rest ±70 mm. With both rests 220 mm and mean 180 mm, the full difference may only be −60 to +60 mm. Difference +80 mm would command cable 2 to 140 mm; both targets are rejected. Sliders reflect the permitted interval; invalid numeric targets stay visible and disable Move both cables.
 
-**Endpoints are coordinated; starts are not hardware synchronized.** Both IDs are serviced by one serial worker. The documented protocol commits each target separately, so exact preservation of A or D throughout a move is not guaranteed. Different distances, speed rounding, loads, acceleration and serial delay can cause transient changes. A combined A/D command uses the selected cable speed for each moving cable; it does not synthesize a synchronized trajectory. See [ENGINEERING.md](ENGINEERING.md).
+Both IDs are serviced by one serial worker. The app stages both low target words (register 16), then sends the two high-word commits (register 18) back-to-back. It does not wait for cable 1 to finish. Already-enabled position loops need no intervening enable write. A small serial start gap remains, and sufficiently short moves may still finish inside that gap. The panel displays host commit-request timing, not measured motor-start timing. Different distances, speed rounding, acceleration and loads can also produce different arrival times; there is no synchronized trajectory. See [ENGINEERING.md](ENGINEERING.md).
 
 ## Data and experiments
 
 The default plot frame is **Since connection**. It is available immediately and stays consistent across rest changes. Select **From rest** or **Cable length** when those quantities are known. Blank absolute traces before reference are intentional. Freeze pauses drawing, not acquisition.
 
-The **Trials** tab supports mean/difference rows or one-cable rest-relative rows. Each row moves, waits for all selected cables to settle, then holds. All rows are prevalidated before the first motion. Stop aborts the remaining procedure; there is no automatic resume. Saved procedure files store A in **millimetres**, even though the table displays metres. `examples/mean_difference_sweep.json` demonstrates the format; it must be reviewed against the physical setup before execution.
+The **Trials** tab displays mean in metres and FULL difference in millimetres, or one-cable rest-relative rows. Each row moves, waits for all selected cables to settle, then holds. All rows are prevalidated before the first motion. Stop aborts the remaining procedure; there is no automatic resume. For backward compatibility saved procedures and logs retain mean in millimetres and HALF-difference in millimetres. Load/save converts the display explicitly; old files keep their original physical targets. `examples/mean_difference_sweep.json` demonstrates the stored format.
 
 Each connection creates a folder under `logs/` containing:
 
@@ -118,7 +120,7 @@ The **Review** tab compares up to four recorded sessions and supports earlier si
 QT_QPA_PLATFORM=offscreen uv run python -m unittest discover -s tests -v
 ```
 
-**48 local tests pass**, including real Qt event-loop tests with two simulated drives, register handling, setup jogging, sign/gear conversion, A/D math and bounds, partial-command failure, both-drive stop/fault handling, configuration import and recording. Screenshots are from simulation. No physical two-motor bench was connected during development. The included GitHub Actions workflow has not yet run remotely.
+**68 local tests pass**, including real Qt event-loop tests, paired slider/numeric behavior, legacy procedure conversion, actual low/high register order, cancellation during staging and commits, and safe position-mode restoration after STOP. Screenshots are from simulation. No physical two-motor bench was connected during development. The included GitHub Actions workflow has not yet run remotely.
 
 For GitHub publishing, follow [GITHUB_SETUP.md](GITHUB_SETUP.md). The delivered folder is initialized as a Git repository on `main`, with an initial commit. It has no remote configured. Research data and local device configuration remain outside version control.
 

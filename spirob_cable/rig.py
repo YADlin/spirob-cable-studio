@@ -32,6 +32,7 @@ class Axis:
         self.index, self.cfg, self.drive, self.recorder = index, cfg, drive, recorder
         self.count = self.connection = self.rest = self.rest_length = self.target = None
         self.enabled = False
+        self.position_mode = False
         self.state = 'DISABLED'
         self.last_read = None
         self.stable = deque(maxlen=3)
@@ -199,6 +200,7 @@ class Rig:
                 raise Cancelled()
             self.checkpoint(); a.drive.enable()
             a.enabled, a.disable_confirmed, a.state = True, False, 'HOLDING'
+            a.position_mode = True
             a.target = a.count; a.stable.clear()
             a.message = 'Enabled: jog now. Set rest only for referenced/absolute targets.'
             self.recorder.event('enabled_hold_here', axis=a.index, count=a.count)
@@ -247,28 +249,46 @@ class Rig:
                 a.rpm, a.speed_verified = rpm, True
                 self.recorder.event('speed_applied', axis=a.index, motor_rpm=rpm,
                                     requested_mm_s=move.speed, nominal_mm_s=a.cfg.speed_for_rpm(rpm))
-            self.poll_all()  # Do not let dual preparation starve feedback.
+                self.poll_all()  # Refresh feedback after serial preparation.
+            if not a.position_mode:
+                # STOP uses torque hold mode. Re-enter position mode with the
+                # current position preloaded, never with an old motion target.
+                self.checkpoint(); a.stationary()
+                if not a.drive.target(a.count, self.cancelled):
+                    raise Cancelled()
+                self.checkpoint(); a.drive.enable(); a.position_mode = True
+                self.poll_all()
         self.validate_moves(moves)
+        # Neither drive moves from these low-word writes. Stage all selected
+        # targets before any high-word commit; on failure, commit neither.
+        for move in moves:
+            self.checkpoint()
+            if not self.axis(move.axis).drive.stage_target(move.count, self.cancelled):
+                raise Cancelled()
+        # Prepare log entries before the closely spaced commits.
+        for move in moves:
+            a = self.axis(move.axis)
+            self.recorder.event('move_requested', axis=a.index, kind=move.kind, from_count=a.count,
+                target_count=move.count, requested_mm_s=move.speed, motor_rpm=a.rpm,
+                nominal_mm_s=a.cfg.speed_for_rpm(a.rpm), rest_count=a.rest)
         dispatch_times = []
         for move in moves:
             self.checkpoint(); a = self.axis(move.axis)
             distance = abs(move.count-a.count)*a.cfg.mm_per_count
-            self.recorder.event('move_requested', axis=a.index, kind=move.kind, from_count=a.count,
-                target_count=move.count, requested_mm_s=move.speed, motor_rpm=a.rpm,
-                nominal_mm_s=a.cfg.speed_for_rpm(a.rpm), rest_count=a.rest)
             a.target, a.state = move.count, 'MOVING'
             a.deadline = time.monotonic()+2*distance/a.cfg.speed_for_rpm(a.rpm)+6
             a.stable.clear()
             started = time.monotonic()
-            if not a.drive.target(move.count,self.cancelled):
+            if not a.drive.commit_target(move.count,self.cancelled):
                 raise Cancelled()
-            self.checkpoint(); a.drive.enable()
             dispatch_times.append((a.index, started, time.monotonic()))
             a.message = 'Moving; selected speed applies to this move.'
         if len(moves) == 2:
             self.recorder.event('pair_dispatched', axis_order=[x[0] for x in dispatch_times],
                  first_to_second_dispatch_s=dispatch_times[1][1]-dispatch_times[0][1],
-                 note='Host sequential dispatch timing, not motor start skew')
+                 commit_start_gap_s=dispatch_times[1][1]-dispatch_times[0][1],
+                 commit_end_gap_s=dispatch_times[1][2]-dispatch_times[0][2],
+                 note='Both low words staged, then high words committed back-to-back; host timing, not measured motor start skew')
 
     def jog(self, index, delta, speed):
         a = self.axis(index); a.idle()
@@ -324,6 +344,7 @@ class Rig:
             if a.enabled:
                 try:
                     a.drive.hold(); a.target = None; a.state = 'STOPPING'
+                    a.position_mode = False
                     a.deadline = time.monotonic()+6; a.stable.clear()
                     a.message = 'Stop requested; waiting for stationary feedback.'
                 except Exception as exc:
@@ -342,6 +363,7 @@ class Rig:
             except Exception as exc:
                 a.disable_confirmed = False; errors.append(str(exc))
             a.enabled = False; a.rest = a.rest_length = a.target = None
+            a.position_mode = False
             a.epoch += 1; a.stable.clear(); a.deadline = None
             a.state = 'FAULT' if self.faulted else 'DISABLED'
             a.message = 'Torque off. Rest cleared; connection displacement is retained.'
@@ -359,6 +381,7 @@ class Rig:
             except Exception:
                 a.disable_confirmed = False
             a.enabled = False; a.rest = a.rest_length = a.target = None
+            a.position_mode = False
             a.state = 'FAULT'; a.epoch += 1; a.stable.clear()
         try:
             self.recorder.event('fault', reason=str(reason), disable_confirmed=[a.disable_confirmed for a in self.axes])
