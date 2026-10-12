@@ -1,0 +1,220 @@
+{
+  "version": "0.7.1",
+  "date": "2026-10-06",
+  "hardware_operated": false,
+  "runtime_protocol": "0.7.0",
+  "new_checks": {
+    "four_rendered_view_combinations": "PASS",
+    "independent_physical_model_and_connector_layers": "PASS",
+    "standalone_reference_without_camera_ssh_or_timer": "PASS",
+    "camera_only_setup_lease": "PASS",
+    "preserved_view_choices_across_setup_to_connect": "PASS",
+    "hidden_view_does_not_bypass_freshness": "PASS",
+    "disconnect_preserves_backbone_choice": "PASS",
+    "camera_failure_recovers_reference": "PASS"
+  },
+  "current_regressions": {
+    "verify_window": "PASS",
+    "verify_v070": "PASS",
+    "verify_v060": "PASS",
+    "verify_v051": "PASS"
+  },
+  "prior_v070_verification": {
+    "version": "0.7.0",
+    "date": "2026-10-06",
+    "hardware_operated": false,
+    "current_science_dynamics_and_11_driver_scenarios": {
+      "science": {
+        "recorded_hold_rmse_px": [
+          7.293832232420537,
+          6.391024457393704,
+          4.8603986135974795,
+          9.81105040992963
+        ],
+        "scaling_cost_bounds_static_damping": "PASS"
+      },
+      "dynamics": {
+        "moving_backbone": "PASS",
+        "moving_stiffness_score_suppressed": "PASS",
+        "stale_reset": "PASS"
+      },
+      "demo_driver": {
+        "normal": {
+          "state": "COMPLETE",
+          "error": null,
+          "motor_shutdown": {
+            "worker_exited": true,
+            "disable_confirmed": [
+              true,
+              true
+            ]
+          },
+          "camera_writer_exited": true
+        },
+        "discard": {
+          "state": "COMPLETE",
+          "error": null,
+          "motor_shutdown": {
+            "worker_exited": true,
+            "disable_confirmed": [
+              true,
+              true
+            ]
+          },
+          "camera_writer_exited": true
+        },
+        "discard_then_record": {
+          "state": "COMPLETE",
+          "error": null,
+          "motor_shutdown": {
+            "worker_exited": true,
+            "disable_confirmed": [
+              true,
+              true
+            ]
+          },
+          "camera_writer_exited": true
+        },
+        "setup_controls": {
+          "state": "COMPLETE",
+          "error": null,
+          "motor_shutdown": {
+            "worker_exited": true,
+            "disable_confirmed": [
+              true,
+              true
+            ]
+          },
+          "camera_writer_exited": true
+        },
+        "independent_controls": {
+          "state": "COMPLETE",
+          "error": null,
+          "motor_shutdown": {
+            "worker_exited": true,
+            "disable_confirmed": [
+              true,
+              true
+            ]
+          },
+          "camera_writer_exited": true
+        },
+        "cold_start": {
+          "state": "COMPLETE",
+          "error": null,
+          "motor_shutdown": {
+            "worker_exited": true,
+            "disable_confirmed": [
+              true,
+              true
+            ]
+          },
+          "camera_writer_exited": true
+        },
+        "heartbeat_lost": {
+          "state": "FAILED",
+          "error": "interactive session: RuntimeError: Workstation heartbeat lost",
+          "motor_shutdown": {
+            "worker_exited": true,
+            "disable_confirmed": [
+              true,
+              true
+            ]
+          },
+          "camera_writer_exited": true
+        },
+        "preview_lost": {
+          "state": "FAILED",
+          "error": "interactive session: RuntimeError: Workstation camera preview is stale",
+          "motor_shutdown": {
+            "worker_exited": true,
+            "disable_confirmed": [
+              true,
+              true
+            ]
+          },
+          "camera_writer_exited": true
+        },
+        "camera_failure": {
+          "state": "FAILED",
+          "error": "interactive session: RuntimeError: Injected camera failure",
+          "motor_shutdown": {
+            "worker_exited": true,
+            "disable_confirmed": [
+              true,
+              true
+            ]
+          },
+          "camera_writer_exited": true
+        },
+        "eof": {
+          "state": "FAILED",
+          "error": "Control SSH input closed",
+          "motor_shutdown": {
+            "worker_exited": true,
+            "disable_confirmed": [
+              true,
+              true
+            ]
+          },
+          "camera_writer_exited": true
+        },
+        "timeout": {
+          "state": "FAILED",
+          "error": "interactive session: RuntimeError: Interactive session duration limit reached",
+          "motor_shutdown": {
+            "worker_exited": true,
+            "disable_confirmed": [
+              true,
+              true
+            ]
+          },
+          "camera_writer_exited": true
+        }
+      }
+    },
+    "new_checks": {
+      "independent_absolute_endpoints_and_individual_speeds": "PASS",
+      "both_targets_validated_before_drive_writes": "PASS",
+      "default_linked_speed_controls": "PASS",
+      "stop_hold_during_independent_move": "PASS",
+      "manual_capture_without_extraction_or_tracking": "PASS",
+      "manual_exact_named_point_cost": "PASS",
+      "noncontiguous_manual_points_without_tip_or_texture_requirements": "PASS",
+      "invalid_captured_inputs_and_missing_stationarity_explained": "PASS",
+      "manual_capture_placement_sweep_export_ui": "PASS",
+      "frozen_image_points_encoder_and_sweep_identity": "PASS",
+      "slow_vision_does_not_block_model_or_camera": "PASS",
+      "delayed_measurement_uses_captured_model_geometry": "PASS",
+      "automatic_settled_scoring_recovers_with_slow_vision": "PASS",
+      "bounded_vision_queues": "PASS",
+      "reference_overlay_and_visible_reason_when_extraction_fails": "PASS"
+    },
+    "current_regressions": {
+      "verify_v050": "PASS",
+      "verify_v051": "PASS",
+      "verify_v060": "PASS",
+      "verify_v061": "PASS",
+      "verify_window": "PASS",
+      "verify_transport": "PASS",
+      "verify_regressions": "PASS"
+    },
+    "test_environment": {
+      "python": "3.12",
+      "mujoco": "3.3.7",
+      "PySide6": "6.8.3",
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "opencv": "5.0.0",
+      "scikit_image": "0.26.0"
+    },
+    "slow_vision_isolation_test": {
+      "injected_vision_seconds": 0.35,
+      "model_frames": 38,
+      "completed_vision_measurements": 7,
+      "physical_throughput_claim": false
+    },
+    "scope": "Recorded images, synthetic cameras, offscreen Qt and the actual controller with simulated drives. All eleven driver-session/shutdown cases were run against this release. Physical hardware was not operated. This is not a fresh installation of every locked deployment dependency; shipped dependency constraints are unchanged. Actual motor travel and physical point identities require checking on the rig."
+  },
+  "scope": "Workstation view-control correction, checked with rendered pixels, recorded/synthetic images, fake camera/run links and retained UI workflows. Runtime protocol and motor commands are unchanged. The eleven driver-session scenarios were run for 0.7.0 as identified in the prior report. No physical hardware was operated."
+}

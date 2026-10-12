@@ -1,0 +1,6 @@
+{
+  "units": "m",
+  "coordinate_frame": "robot_base_xy",
+  "time_origin": "shared_session_origin",
+  "required_points": ["tip"]
+}

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "name": "pilot_220mm",
+  "rest_lengths_mm": [220.0, 220.0],
+  "speed_mm_s": 1.0,
+  "repetitions": 3,
+  "pre_roll_s": 2.0,
+  "post_roll_s": 2.0,
+  "timeout_s": 120.0,
+  "steps": [
+    {"cable_1_mm": 220.0, "cable_2_mm": 220.0, "hold_s": 1.0},
+    {"cable_1_mm": 220.5, "cable_2_mm": 219.5, "hold_s": 1.0},
+    {"cable_1_mm": 220.0, "cable_2_mm": 220.0, "hold_s": 1.0}
+  ]
+}

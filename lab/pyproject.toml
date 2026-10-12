@@ -1,0 +1,16 @@
+[project]
+name = "spirob-analysis-pilot"
+version = "0.8.0"
+description = "Explainable offline and live joint-2 comparison for SpiRob"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "mujoco==3.3.7", "numpy==2.5.3", "scipy==1.18.1",
+  "Pillow==12.3.0", "matplotlib==3.11.2",
+  "opencv-python-headless==5.0.0.93", "scikit-image==0.26.0",
+]
+
+[project.optional-dependencies]
+live = ["PySide6==6.8.3"]
+
+[tool.uv]
+package = false
