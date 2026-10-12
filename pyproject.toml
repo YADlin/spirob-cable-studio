@@ -11,5 +11,10 @@ dependencies = [
   "pyserial==3.5",
 ]
 
+[project.optional-dependencies]
+capture = [
+    "opencv-python-headless==4.11.0.86",
+]
+
 [tool.uv]
 package = false

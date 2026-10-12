@@ -1,0 +1,177 @@
+{
+  "version": "0.6.1",
+  "date": "2026-10-06",
+  "hardware_operated": false,
+  "current_science_and_dynamics": {
+    "science": {
+      "recorded_hold_rmse_px": [
+        7.293832232420537,
+        6.391024457393704,
+        4.8603986135974795,
+        9.81105040992963
+      ],
+      "scaling_cost_bounds_static_damping": "PASS"
+    },
+    "dynamics": {
+      "moving_backbone": "PASS",
+      "moving_stiffness_score_suppressed": "PASS",
+      "stale_reset": "PASS"
+    },
+    "demo_driver": "Not run: source paths were not supplied"
+  },
+  "new_checks": {
+    "exact_off_curve_manual_coordinates": "PASS",
+    "rigid_image_tracking": "PASS",
+    "saved_image_reacquisition": "PASS",
+    "lost_blank_resized_and_ambiguous_image_pauses": "PASS",
+    "wrong_automatic_measurement_refused": "PASS",
+    "frozen_j_sweep_export_exact_coordinates": "PASS",
+    "placement_without_automatic_curve": "PASS",
+    "fixed_base_scale_matching": "PASS",
+    "calibration_save_reload": "PASS"
+  },
+  "current_regressions": {
+    "verify_v050": "PASS",
+    "verify_v051": "PASS",
+    "verify_v060": "PASS"
+  },
+  "prior_v060_full_checks": {
+    "science": {
+      "recorded_hold_rmse_px": [
+        7.293832232420537,
+        6.391024457393704,
+        4.8603986135974795,
+        9.81105040992963
+      ],
+      "scaling_cost_bounds_static_damping": "PASS"
+    },
+    "dynamics": {
+      "moving_backbone": "PASS",
+      "moving_stiffness_score_suppressed": "PASS",
+      "stale_reset": "PASS"
+    },
+    "demo_driver": {
+      "normal": {
+        "state": "COMPLETE",
+        "error": null,
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      },
+      "discard": {
+        "state": "COMPLETE",
+        "error": null,
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      },
+      "discard_then_record": {
+        "state": "COMPLETE",
+        "error": null,
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      },
+      "setup_controls": {
+        "state": "COMPLETE",
+        "error": null,
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      },
+      "cold_start": {
+        "state": "COMPLETE",
+        "error": null,
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      },
+      "heartbeat_lost": {
+        "state": "FAILED",
+        "error": "interactive session: RuntimeError: Workstation heartbeat lost",
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      },
+      "preview_lost": {
+        "state": "FAILED",
+        "error": "interactive session: RuntimeError: Workstation camera preview is stale",
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      },
+      "camera_failure": {
+        "state": "FAILED",
+        "error": "interactive session: RuntimeError: Injected camera failure",
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      },
+      "eof": {
+        "state": "FAILED",
+        "error": "Control SSH input closed",
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      },
+      "timeout": {
+        "state": "FAILED",
+        "error": "interactive session: RuntimeError: Interactive session duration limit reached",
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      }
+    }
+  },
+  "scope": "Current update checked with recorded images, synthetic image joints, offscreen Qt and existing v060 synthetic-camera/driver checks. Prior ten shutdown-driver scenarios are separately identified above. No physical rig was operated. Actual image tracking quality requires verification on the fixed-camera planar rig."
+}

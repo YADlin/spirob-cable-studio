@@ -1,0 +1,311 @@
+{
+  "version": "0.8.0",
+  "date": "2026-10-06",
+  "hardware_operated": false,
+  "runtime_protocol": "0.7.0",
+  "new_checks": {
+    "73_pose_default_through_original_motor_Rig_DemoDrive_and_dispatcher": "PASS",
+    "mixed_difference_independent_axis_plans_and_31_capture_interpolation": "PASS",
+    "ack_identity_correct_target_stability_and_dwell_before_capture": "PASS",
+    "stale_rejected_missing_ack_Stop_timeout_and_disk_failure_abort_without_retry": "PASS",
+    "raw_jpeg_hashes_frozen_model_no_base64_duplication_image_budget": "PASS",
+    "shared_then_per_pose_known_parameter_minima_and_invalid_equilibrium_gaps": "PASS",
+    "manual_annotation_without_current_k_equilibrium": "PASS",
+    "incomplete_subset_coverage_and_cancellation": "PASS",
+    "native_batch_drafts_zoom_auto_advance_Save_next_and_image_flow_suggestions": "PASS",
+    "offline_reopen_and_interrupted_frame_index_recovery": "PASS",
+    "GUI_autonomous_automatic_result_and_manual_queue": "PASS",
+    "campaign_writer_quiescence_before_run_discard": "PASS",
+    "campaign_layout_and_result_PNG_CSV_JSON": "PASS"
+  },
+  "current_regressions": {
+    "verify_v073": "PASS",
+    "verify_v072": "PASS",
+    "verify_v070": "PASS",
+    "verify_v051": "PASS",
+    "verify_window": "PASS"
+  },
+  "evidence_logs": {
+    "v080-window.log": "PASS: recorded example, parameter edit, frozen sweep, arm/move/hold command wiring, stale-data gating, disconnect acknowledgement\n",
+    "v080-v070.log": "This plugin does not support raise()\nPASS independent endpoints/speeds; complete validation before writes; scoped worker; original mean/difference limits\nPASS manual points with no extraction/texture/tracking; same captured model; stale/unreferenced/moving inputs explained\nPASS actual manual capture/points/sweep/export buttons; independent linked speeds; mode preference; failed extraction has a visible explanation\nPASS slow vision isolation: 38 model frames / 7 measured frames; automatic settled sweep recovered; queues bounded\nAll v0.7.0 checks passed. No physical hardware was operated.\n",
+    "v080-test.log": "PASS mixed waypoints, speeds, interpolation, 73-pose default and limits\nPASS ack identity, correct target + stable hold, one capture per pose, stale/reject/ack/write/Stop/timeout aborts and no retry\nPASS exact raw JPEG retention, frozen model, offline reopen, shared/separate synthetic minima, invalid cells, subset reporting, storage cap and cancellation\nThis plugin does not support raise()\nGUI editor prepare\nGUI draft reload\nGUI save points\nPASS native batch editor, saved drafts, auto-advance retaining zoom, Save & next, exclusion, result exports and layouts\nPASS all v0.8.0 campaign checks\n",
+    "v080-v073.log": "PASS exact XML defaults, profile equation, fixed joint 1/damping, both surface axes, synthetic minima, 1D equivalence, r^b degeneracy and live-state preservation\nPASS invalid equilibria omitted, boundary flagged, all-invalid grid refused, cancellation, unchanged frozen input and model hash gate\nPASS configured-host startup has no modal or SSH recovery; explicit pending review works; unconfirmed shutdown cannot discard\nPASS actual 3D dialog, both axes, frozen capture, rotation, staging/explicit Apply, three window sizes, both themes and PNG/CSV/JSON exports\nAll v0.7.3 checks passed. No physical hardware was operated.\n",
+    "v080-v051.log": "This plugin does not support propagateSizeHints()\nThis plugin does not support raise()\nThis plugin does not support raise()\nPASS: live Apply preserves physics; absent/invalid vision pauses J only; restart, mapping and stale gates\nPASS: crash recovery, Save/Discard, no action before choice, lost replies, unknown shutdown and path guards\nCreated: /tmp/tmpgwhquhfv/Downloads/SpiRob_diagnostics_v070_20261006T182410_729952Z.zip\nNo images or credential files included. Size: 1 KB\nLaptop logs unavailable; workstation settings and logs were still collected.\nPASS: active-owner lock, persistent workstation journal, interrupted discard recovery and offline diagnostics\nPASS: actual Apply button, saved base, off-image rejection, no Connect prompt; disconnect/close/timeout prompt after shutdown; restart recovery\n",
+    "v080-v072.log": "PASS 24 native jog clicks at 1280\u00d7720, 1366\u00d7768 and 1920\u00d71080: no scroll, no tab switch, stable control coordinates; Stop retains focus\nPASS actual box zoom/pan, precise point clicks, row selection, numeric edits, inclusion and table scroll; Home/Fit/new-capture behavior; editor fits tested displays\nAll v0.7.2 checks passed. No physical hardware was operated.\n",
+    "v080-flow.log": "This plugin does not support raise()\nPASS GUI autonomous automatic measurement + shared result; shutdown waits for writers and discarded folders stay deleted\nThis plugin does not support raise()\nPASS GUI autonomous manual queue without extraction; shutdown waits for writers and discarded folders stay deleted\n",
+    "v080-installer.log": "{\n  \"073\": \"PASS check-only, install, preserved user files and legacy reports, repeat, rollback, source-edit refusal without writes\",\n  \"incremental040_050_051_060_061_070_071_072_073\": \"PASS check-only, install, preserved user files and legacy reports, repeat, rollback, source-edit refusal without writes\",\n  \"full050\": \"PASS check-only, install, preserved user files and legacy reports, repeat, rollback, source-edit refusal without writes\",\n  \"incremental040_050\": \"PASS check-only, install, preserved user files and legacy reports, repeat, rollback, source-edit refusal without writes\",\n  \"051_r1\": \"PASS check-only, install, preserved user files and legacy reports, repeat, rollback, source-edit refusal without writes\",\n  \"051_r2\": \"PASS check-only, install, preserved user files and legacy reports, repeat, rollback, source-edit refusal without writes\",\n  \"incremental040_050_051_r2\": \"PASS check-only, install, preserved user files and legacy reports, repeat, rollback, source-edit refusal without writes\",\n  \"060\": \"PASS check-only, install, preserved user files and legacy reports, repeat, rollback, source-edit refusal without writes\",\n  \"incremental040_050_051_060\": \"PASS check-only, install, preserved user files and legacy reports, repeat, rollback, source-edit refusal without writes\",\n  \"061\": \"PASS check-only, install, preserved user files and legacy reports, repeat, rollback, source-edit refusal without writes\",\n  \"incremental040_050_051_060_061\": \"PASS check-only, install, preserved user files and legacy reports, repeat, rollback, source-edit refusal without writes\",\n  \"072\": \"PASS check-only, install, preserved user files and legacy reports, repeat, rollback, source-edit refusal without writes\",\n  \"incremental040_050_051_060_061_070_071_072\": \"PASS check-only, install, preserved user files and legacy reports, repeat, rollback, source-edit refusal without writes\",\n  \"071\": \"PASS check-only, install, preserved user files and legacy reports, repeat, rollback, source-edit refusal without writes\",\n  \"incremental040_050_051_060_061_070_071\": \"PASS check-only, install, preserved user files and legacy reports, repeat, rollback, source-edit refusal without writes\",\n  \"070\": \"PASS check-only, install, preserved user files and legacy reports, repeat, rollback, source-edit refusal without writes\",\n  \"incremental040_050_051_060_061_070\": \"PASS check-only, install, preserved user files and legacy reports, repeat, rollback, source-edit refusal without writes\"\n}\n",
+    "v080-driver.log": "PASS all 73 default poses through original DemoDrive/Rig and real command dispatcher; independent speeds, HOLDING + target capture, one acknowledged command per pose; simulated duration 735.4 s\n"
+  },
+  "prior_v073_verification": {
+    "version": "0.7.3",
+    "date": "2026-10-06",
+    "hardware_operated": false,
+    "runtime_protocol": "0.7.0",
+    "new_checks": {
+      "configured_host_launch_without_recovery_modal_or_ssh": "PASS",
+      "explicit_old_run_review_and_unchanged_discard_guard": "PASS",
+      "xml_default_weights_and_1d_equivalence": "PASS",
+      "both_profile_axes_known_parameter_minima": "PASS",
+      "ratio_exponent_degeneracy": "PASS",
+      "joint1_damping_and_live_state_preserved": "PASS",
+      "invalid_equilibrium_gaps_and_boundary_minima": "PASS",
+      "cancellation_and_frozen_model_hash_gate": "PASS",
+      "native_3d_rotation_and_explicit_profile_apply": "PASS",
+      "surface_layout_at_three_window_sizes_and_both_themes": "PASS",
+      "png_csv_json_frozen_provenance_exports": "PASS"
+    },
+    "current_regressions": {
+      "verify_core_science_dynamics": "PASS",
+      "verify_window": "PASS",
+      "verify_v072": "PASS",
+      "verify_v070": "PASS",
+      "verify_v051": "PASS"
+    },
+    "prior_v072_verification": {
+      "version": "0.7.2",
+      "date": "2026-10-06",
+      "hardware_operated": false,
+      "runtime_protocol": "0.7.0",
+      "new_checks": {
+        "native_jog_click_geometry_focus_and_scroll": "PASS",
+        "twenty_four_jog_cycles_at_three_window_sizes": "PASS",
+        "motion_controls_and_plots_fit_1280x720_1366x768_1920x1080": "PASS",
+        "image_toolbar_zoom_pan_and_exact_placement": "PASS",
+        "viewport_preserved_across_row_coordinate_and_inclusion_edits": "PASS",
+        "point_table_scroll_preserved": "PASS",
+        "toolbar_history_survives_point_edits": "PASS",
+        "explicit_fit_full_frame_and_new_capture_resets": "PASS"
+      },
+      "current_regressions": {
+        "verify_window": "PASS",
+        "verify_v070": "PASS",
+        "verify_v071": "PASS",
+        "verify_v061": "PASS",
+        "verify_v051": "PASS"
+      },
+      "prior_v071_verification": {
+        "version": "0.7.1",
+        "date": "2026-10-06",
+        "hardware_operated": false,
+        "runtime_protocol": "0.7.0",
+        "new_checks": {
+          "four_rendered_view_combinations": "PASS",
+          "independent_physical_model_and_connector_layers": "PASS",
+          "standalone_reference_without_camera_ssh_or_timer": "PASS",
+          "camera_only_setup_lease": "PASS",
+          "preserved_view_choices_across_setup_to_connect": "PASS",
+          "hidden_view_does_not_bypass_freshness": "PASS",
+          "disconnect_preserves_backbone_choice": "PASS",
+          "camera_failure_recovers_reference": "PASS"
+        },
+        "current_regressions": {
+          "verify_window": "PASS",
+          "verify_v070": "PASS",
+          "verify_v060": "PASS",
+          "verify_v051": "PASS"
+        },
+        "prior_v070_verification": {
+          "version": "0.7.0",
+          "date": "2026-10-06",
+          "hardware_operated": false,
+          "current_science_dynamics_and_11_driver_scenarios": {
+            "science": {
+              "recorded_hold_rmse_px": [
+                7.293832232420537,
+                6.391024457393704,
+                4.8603986135974795,
+                9.81105040992963
+              ],
+              "scaling_cost_bounds_static_damping": "PASS"
+            },
+            "dynamics": {
+              "moving_backbone": "PASS",
+              "moving_stiffness_score_suppressed": "PASS",
+              "stale_reset": "PASS"
+            },
+            "demo_driver": {
+              "normal": {
+                "state": "COMPLETE",
+                "error": null,
+                "motor_shutdown": {
+                  "worker_exited": true,
+                  "disable_confirmed": [
+                    true,
+                    true
+                  ]
+                },
+                "camera_writer_exited": true
+              },
+              "discard": {
+                "state": "COMPLETE",
+                "error": null,
+                "motor_shutdown": {
+                  "worker_exited": true,
+                  "disable_confirmed": [
+                    true,
+                    true
+                  ]
+                },
+                "camera_writer_exited": true
+              },
+              "discard_then_record": {
+                "state": "COMPLETE",
+                "error": null,
+                "motor_shutdown": {
+                  "worker_exited": true,
+                  "disable_confirmed": [
+                    true,
+                    true
+                  ]
+                },
+                "camera_writer_exited": true
+              },
+              "setup_controls": {
+                "state": "COMPLETE",
+                "error": null,
+                "motor_shutdown": {
+                  "worker_exited": true,
+                  "disable_confirmed": [
+                    true,
+                    true
+                  ]
+                },
+                "camera_writer_exited": true
+              },
+              "independent_controls": {
+                "state": "COMPLETE",
+                "error": null,
+                "motor_shutdown": {
+                  "worker_exited": true,
+                  "disable_confirmed": [
+                    true,
+                    true
+                  ]
+                },
+                "camera_writer_exited": true
+              },
+              "cold_start": {
+                "state": "COMPLETE",
+                "error": null,
+                "motor_shutdown": {
+                  "worker_exited": true,
+                  "disable_confirmed": [
+                    true,
+                    true
+                  ]
+                },
+                "camera_writer_exited": true
+              },
+              "heartbeat_lost": {
+                "state": "FAILED",
+                "error": "interactive session: RuntimeError: Workstation heartbeat lost",
+                "motor_shutdown": {
+                  "worker_exited": true,
+                  "disable_confirmed": [
+                    true,
+                    true
+                  ]
+                },
+                "camera_writer_exited": true
+              },
+              "preview_lost": {
+                "state": "FAILED",
+                "error": "interactive session: RuntimeError: Workstation camera preview is stale",
+                "motor_shutdown": {
+                  "worker_exited": true,
+                  "disable_confirmed": [
+                    true,
+                    true
+                  ]
+                },
+                "camera_writer_exited": true
+              },
+              "camera_failure": {
+                "state": "FAILED",
+                "error": "interactive session: RuntimeError: Injected camera failure",
+                "motor_shutdown": {
+                  "worker_exited": true,
+                  "disable_confirmed": [
+                    true,
+                    true
+                  ]
+                },
+                "camera_writer_exited": true
+              },
+              "eof": {
+                "state": "FAILED",
+                "error": "Control SSH input closed",
+                "motor_shutdown": {
+                  "worker_exited": true,
+                  "disable_confirmed": [
+                    true,
+                    true
+                  ]
+                },
+                "camera_writer_exited": true
+              },
+              "timeout": {
+                "state": "FAILED",
+                "error": "interactive session: RuntimeError: Interactive session duration limit reached",
+                "motor_shutdown": {
+                  "worker_exited": true,
+                  "disable_confirmed": [
+                    true,
+                    true
+                  ]
+                },
+                "camera_writer_exited": true
+              }
+            }
+          },
+          "new_checks": {
+            "independent_absolute_endpoints_and_individual_speeds": "PASS",
+            "both_targets_validated_before_drive_writes": "PASS",
+            "default_linked_speed_controls": "PASS",
+            "stop_hold_during_independent_move": "PASS",
+            "manual_capture_without_extraction_or_tracking": "PASS",
+            "manual_exact_named_point_cost": "PASS",
+            "noncontiguous_manual_points_without_tip_or_texture_requirements": "PASS",
+            "invalid_captured_inputs_and_missing_stationarity_explained": "PASS",
+            "manual_capture_placement_sweep_export_ui": "PASS",
+            "frozen_image_points_encoder_and_sweep_identity": "PASS",
+            "slow_vision_does_not_block_model_or_camera": "PASS",
+            "delayed_measurement_uses_captured_model_geometry": "PASS",
+            "automatic_settled_scoring_recovers_with_slow_vision": "PASS",
+            "bounded_vision_queues": "PASS",
+            "reference_overlay_and_visible_reason_when_extraction_fails": "PASS"
+          },
+          "current_regressions": {
+            "verify_v050": "PASS",
+            "verify_v051": "PASS",
+            "verify_v060": "PASS",
+            "verify_v061": "PASS",
+            "verify_window": "PASS",
+            "verify_transport": "PASS",
+            "verify_regressions": "PASS"
+          },
+          "test_environment": {
+            "python": "3.12",
+            "mujoco": "3.3.7",
+            "PySide6": "6.8.3",
+            "numpy": "2.5.3",
+            "scipy": "1.18.1",
+            "opencv": "5.0.0",
+            "scikit_image": "0.26.0"
+          },
+          "slow_vision_isolation_test": {
+            "injected_vision_seconds": 0.35,
+            "model_frames": 38,
+            "completed_vision_measurements": 7,
+            "physical_throughput_claim": false
+          },
+          "scope": "Recorded images, synthetic cameras, offscreen Qt and the actual controller with simulated drives. All eleven driver-session/shutdown cases were run against this release. Physical hardware was not operated. This is not a fresh installation of every locked deployment dependency; shipped dependency constraints are unchanged. Actual motor travel and physical point identities require checking on the rig."
+        },
+        "scope": "Workstation view-control correction, checked with rendered pixels, recorded/synthetic images, fake camera/run links and retained UI workflows. Runtime protocol and motor commands are unchanged. The eleven driver-session scenarios were run for 0.7.0 as identified in the prior report. No physical hardware was operated."
+      },
+      "scope": "Workstation layout and interaction correction, checked with native Qt jog clicks and actual Matplotlib navigation callbacks at three screen sizes, recorded/synthetic images and fake links. Rendered screens were visually inspected. Runtime protocol, motor commands and scientific calculations are unchanged. Prior reports identify earlier driver-session checks. No physical hardware was operated."
+    },
+    "scope": "Workstation startup recovery and optional stiffness surfaces. Recorded images, synthetic known-parameter observations, native Qt/Matplotlib interactions and simulated links were used. Runtime protocol and motor commands are unchanged. Full driver shutdown scenarios in prior reports are historical and were not repeated here. No physical hardware was operated."
+  },
+  "scope": "Workstation campaigns use unchanged existing guarded motor commands and protocol 0.7.0. Tests used recorded JPEGs, synthetic physical observations, actual Qt interactions and original DemoDrive/Rig with an accelerated clock. No physical hardware was operated. Full service/watchdog shutdown matrices from earlier reports are historical; this release reran campaign abort/writer ordering and retention regressions."
+}

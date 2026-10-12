@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.pyc
+rig.local.json
+logs/
+results_local/
+results_refit/
+results_walkthrough/
+data/*
+!data/quasistatic_review.zip
+
+# Preserve the reviewed offline fixture; ignore generated run products.
+*.local.json
+*.local.json.*
+/backups/
+/Captures/
+/captures/
+/results/*
+!/results/observations.json
+!/config.json

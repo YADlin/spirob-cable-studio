@@ -1,0 +1,162 @@
+{
+  "version": "0.6.0",
+  "date": "2026-10-06",
+  "hardware_operated": false,
+  "recorded_and_simulated_checks": {
+    "science": {
+      "recorded_hold_rmse_px": [
+        7.293832232420537,
+        6.391024457393704,
+        4.8603986135974795,
+        9.81105040992963
+      ],
+      "scaling_cost_bounds_static_damping": "PASS"
+    },
+    "dynamics": {
+      "moving_backbone": "PASS",
+      "moving_stiffness_score_suppressed": "PASS",
+      "stale_reset": "PASS"
+    },
+    "demo_driver": {
+      "normal": {
+        "state": "COMPLETE",
+        "error": null,
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      },
+      "discard": {
+        "state": "COMPLETE",
+        "error": null,
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      },
+      "discard_then_record": {
+        "state": "COMPLETE",
+        "error": null,
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      },
+      "setup_controls": {
+        "state": "COMPLETE",
+        "error": null,
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      },
+      "cold_start": {
+        "state": "COMPLETE",
+        "error": null,
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      },
+      "heartbeat_lost": {
+        "state": "FAILED",
+        "error": "interactive session: RuntimeError: Workstation heartbeat lost",
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      },
+      "preview_lost": {
+        "state": "FAILED",
+        "error": "interactive session: RuntimeError: Workstation camera preview is stale",
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      },
+      "camera_failure": {
+        "state": "FAILED",
+        "error": "interactive session: RuntimeError: Injected camera failure",
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      },
+      "eof": {
+        "state": "FAILED",
+        "error": "Control SSH input closed",
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      },
+      "timeout": {
+        "state": "FAILED",
+        "error": "interactive session: RuntimeError: Interactive session duration limit reached",
+        "motor_shutdown": {
+          "worker_exited": true,
+          "disable_confirmed": [
+            true,
+            true
+          ]
+        },
+        "camera_writer_exited": true
+      }
+    }
+  },
+  "new_features": {
+    "rigid_geometry": "PASS",
+    "physical_scale": "PASS",
+    "setup_preview_no_motor_run": "PASS",
+    "expanded_driver_endpoint_and_feedback_bounds": "PASS",
+    "duration_choices_and_transport": "PASS",
+    "camera_long_duration_and_lease_expiry": "PASS",
+    "joint_apply_save_reload": "PASS",
+    "frozen_pose_j_sweep_export": "PASS",
+    "setup_to_motor_transition": "PASS"
+  },
+  "regressions": {
+    "verify_v050": "PASS",
+    "verify_v051": "PASS",
+    "verify_window": "PASS",
+    "verify_transport": "PASS",
+    "verify_regressions": "PASS"
+  },
+  "scope": "Recorded images, offscreen Qt, synthetic camera, real controller code with simulated drives. Long camera duration checked using advanced test clock. Physical motion and calibration require rig verification."
+}

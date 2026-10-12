@@ -9,3 +9,18 @@ logs/
 *.bundle
 .env
 .env.*
+
+# Reviewed consolidated SpiRob layout (2026-10-12)
+/config.json
+/config.json.tmp
+*.local.json
+*.local.json.*
+.spirob-live.lock
+/diagnostics/
+/lab/backups/
+/lab/Captures/
+/lab/captures/
+/lab/logs/
+/lab/results_*/
+/lab/.venv/
+!/lab/config.json

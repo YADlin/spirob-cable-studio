@@ -1,0 +1,26 @@
+{
+  "ssh_host": "user@CURRENT_WINDOWS_IP",
+  "workstation_token_file": "~/.spirob/camera-token.txt",
+  "windows": {
+    "profile": "C:\\Users\\DELL",
+    "runtime": "C:\\Users\\DELL\\SpiRob_Simple_Runtime",
+    "capture_source": "C:\\Users\\DELL\\spirob-experiment-addon",
+    "data_root": "C:\\Users\\DELL\\SpiRob_Data",
+    "token_file": "C:\\Users\\DELL\\.spirob\\camera-token.txt",
+    "device": 1,
+    "backend": "dshow",
+    "motor_busid": ""
+  },
+  "wsl": {
+    "user": "user",
+    "motor_repo": "/home/user/Research_Work/Two_Cable_HW/spirob-cable-studio",
+    "runtime": "/mnt/c/Users/DELL/SpiRob_Simple_Runtime",
+    "data_root": "/mnt/c/Users/DELL/SpiRob_Data",
+    "token_file": "/mnt/c/Users/DELL/.spirob/camera-token.txt",
+    "camera_ssh_key": "/home/user/.ssh/id_ed25519_spirob_camera",
+    "windows_ssh_user": "user",
+    "serial_device": "/dev/ttyUSB0",
+    "plan": "examples/quasistatic_diff20_pilot.json",
+    "min_fps": 15
+  }
+}

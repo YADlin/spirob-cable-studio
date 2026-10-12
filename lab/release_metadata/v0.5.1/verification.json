@@ -1,0 +1,35 @@
+{
+  "science": {
+    "recorded_hold_rmse_px": [
+      7.293832232420537,
+      6.391024457393704,
+      4.8603986135974795,
+      9.81105040992963
+    ],
+    "scaling_cost_bounds_static_damping": "PASS"
+  },
+  "dynamics": {
+    "moving_backbone": "PASS",
+    "moving_stiffness_score_suppressed": "PASS",
+    "stale_reset": "PASS"
+  },
+  "demo_driver": {
+    "normal": "PASS",
+    "post_run_discard": "PASS",
+    "explicit_recording": "PASS",
+    "setup_controls": "PASS",
+    "cold_start": "PASS",
+    "heartbeat_lost": "PASS",
+    "preview_lost": "PASS",
+    "camera_failure": "PASS",
+    "control_eof": "PASS",
+    "timeout": "PASS"
+  },
+  "version": "0.5.1",
+  "physical_hardware_tested": false,
+  "v051_alignment": "PASS: state preservation, saved base, absent vision, invalid geometry, irregular encoder sampling",
+  "v051_retention": "PASS: post-shutdown prompt, crash journals, active-owner lock, lost reply and interrupted deletion recovery",
+  "v051_gui": "PASS: Apply and reload, no Connect prompt, disconnect/close/timeout Save/Discard/Later",
+  "camera_http_and_limits": "PASS: synthetic-camera transport, recording caps and independent preview",
+  "offline_diagnostics": "PASS"
+}

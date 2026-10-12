@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "name": "quasistatic_diff20_pilot",
+  "rest_lengths_mm": [
+    220.0,
+    220.0
+  ],
+  "speed_mm_s": 1.0,
+  "repetitions": 1,
+  "pre_roll_s": 5.0,
+  "post_roll_s": 5.0,
+  "timeout_s": 240.0,
+  "steps": [
+    {
+      "cable_1_mm": 220.0,
+      "cable_2_mm": 220.0,
+      "hold_s": 15.0
+    },
+    {
+      "cable_1_mm": 230.0,
+      "cable_2_mm": 210.0,
+      "hold_s": 15.0
+    },
+    {
+      "cable_1_mm": 210.0,
+      "cable_2_mm": 230.0,
+      "hold_s": 15.0
+    },
+    {
+      "cable_1_mm": 220.0,
+      "cable_2_mm": 220.0,
+      "hold_s": 15.0
+    }
+  ]
+}
