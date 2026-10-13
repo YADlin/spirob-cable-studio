@@ -1,5 +1,5 @@
 {
-  "model": "model/spirob_robot.xml",
+  "model": "model/new_20261013/spirob_robot.xml",
   "session": "data/quasistatic_review.zip",
   "fit_steps": [
     1,
@@ -211,5 +211,26 @@
     "settle_window_s": 2.0,
     "settle_motion_px": 2.0,
     "dynamic_warmup_s": 1.0
+  },
+  "fit": "calibration/new_model_initial.json",
+  "motion_profile": {
+    "rest_lengths_mm": [
+      227.35331441047117,
+      227.3533144104711
+    ],
+    "absolute_bounds_mm": [
+      [
+        150.0,
+        300.0
+      ],
+      [
+        150.0,
+        300.0
+      ]
+    ],
+    "max_speed_mm_s": 20.0,
+    "setup_travel_mm": 150.0,
+    "difference_mm": 150.0,
+    "travel_mm": 77.35331441047117
   }
 }

@@ -44,7 +44,7 @@ def collect(root, rig):
         remote = None
         remote_error = type(exc).__name__+': '+str(exc)
     stamp=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S_%fZ')
-    target = Path.home()/('Downloads/SpiRob_diagnostics_v070_'+stamp+'.zip')
+    target = Path.home()/('Downloads/SpiRob_diagnostics_v090_'+stamp+'.zip')
     target.parent.mkdir(parents=True, exist_ok=True)
     with ZipFile(target, 'w', ZIP_DEFLATED) as out:
         if remote is not None:

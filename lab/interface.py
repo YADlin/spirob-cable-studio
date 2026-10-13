@@ -27,6 +27,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from appearance import apply_theme, theme_figure
 from analysis import Comparator
+from spirob_analysis.model import SpiRobModel
 from connection import WorkstationSession, CameraSetupSession, camera_get
 from run_storage import review_entries, finish_review
 from spirob_analysis.measurement import measure
@@ -156,7 +157,7 @@ class Preview(QThread):
         last_error=0.
         try:
             with ((Path(log_dir)/name).open('x') if log_dir else nullcontext(NullLog())) as log:
-                log.write(json.dumps(dict(type='metadata',version='0.8.0',config=self.config,
+                log.write(json.dumps(dict(type='metadata',version='0.9.0',config=self.config,
                     parameters=self.engine.p,d2=self.engine.d2,recorded_demo=self.demo,
                     source_sha256={str(p):hashlib.sha256(p.read_bytes()).hexdigest()
                         for p in [*Path('.').glob('*.py'),*Path('spirob_live').glob('*.py')]}))+'\n')
@@ -376,6 +377,9 @@ class Window(QMainWindow):
         super().__init__()
         self.config, self.fit, self.rig, self.demo = copy.deepcopy(config), copy.deepcopy(fit), rig, demo
         config, fit = self.config, self.fit
+        from motion_settings import model_profile
+        from motion_profile import validate_profile
+        self.motion_profile=validate_profile(config['motion_profile']) if config.get('motion_profile') else model_profile(SpiRobModel(config['model']))
         self.theme = config.get('theme', 'light')
         apply_theme(QApplication.instance(), self.theme)
         self.startup_setup_warning = None
@@ -429,7 +433,7 @@ class Window(QMainWindow):
         self.last_display = self.last_plot = 0.
         self.history = []
         self.scan_busy = False
-        self.setWindowTitle('SpiRob Lab 0.8.0 — connect · move · compare')
+        self.setWindowTitle('SpiRob Lab 0.9.0 — connect · move · compare')
         self.setMinimumSize(1040,650)
         available=QApplication.primaryScreen().availableGeometry()
         self.resize(min(1440,max(1040,available.width()-48)),min(900,max(650,available.height()-64)))
@@ -448,8 +452,8 @@ class Window(QMainWindow):
         # Session controls stay outside every scrolling or tabbed region.
         actions=QHBoxLayout();layout.addLayout(actions)
         self.connect_button=QPushButton('Connect');self.arm_button=QPushButton('Enable at rest')
-        self.hold_button=QPushButton('Stop / Hold');self.disconnect_button=QPushButton('Disconnect')
-        self.hold_button.setStyleSheet('font-weight:700;border:2px solid #b96c16;padding:5px 14px')
+        self.hold_button=QPushButton('STOP — hold both');self.disconnect_button=QPushButton('Disconnect')
+        self.hold_button.setStyleSheet('font-weight:800;background:#a32121;color:white;border:2px solid #ffb5b5;padding:7px 16px')
         for button in (self.connect_button,self.arm_button,self.hold_button,self.disconnect_button):actions.addWidget(button)
         self.at_rest=QCheckBox('Robot is at its declared physical rest');actions.addWidget(self.at_rest,1)
         self.at_rest.setToolTip('Confirm both actual physical cable lengths match their configured rest before enabling or declaring rest.')
@@ -481,7 +485,7 @@ class Window(QMainWindow):
         motion_row.addWidget(QLabel('Analysis motion'));motion_row.addWidget(self.motor_mode,1)
         self.motion_stack=QStackedWidget();motion.addWidget(self.motion_stack,1)
         self.motor_mode.currentIndexChanged.connect(self.motion_stack.setCurrentIndex)
-        self.mean=self.number(220.,70.,10000.,3);self.difference=self.number(20.,-70.,70.,3);self.speed=self.number(1.,.05,5.,2)
+        self.mean=self.number(sum(self.motion_profile['rest_lengths_mm'])/2,.001,10000.,3);self.difference=self.number(0.,-150.,150.,3);self.speed=self.number(1.,.05,20.,2)
         mean_panel=QWidget();mean_grid=QGridLayout(mean_panel);mean_grid.setContentsMargins(0,0,0,0);self.motion_stack.addWidget(mean_panel)
         for i,(label,box) in enumerate((('Mean length [mm]',self.mean),('Full difference [mm]',self.difference),('Speed [mm/s]',self.speed))):
             mean_grid.addWidget(QLabel(label),0,i);mean_grid.addWidget(box,1,i);box.valueChanged.connect(self.show_targets)
@@ -497,7 +501,7 @@ class Window(QMainWindow):
         for col,label in enumerate(['Cable','Target [mm]','Speed [mm/s]','']):independent.addWidget(QLabel(label),0,col)
         for axis in (0,1):
             independent.addWidget(QLabel(f'Cable {axis+1}'),1+axis,0)
-            target=self.number(220.,150.,290.,3);speed=self.number(1.,.05,5.,2)
+            target=self.number(self.motion_profile['rest_lengths_mm'][axis],.001,10000.,6);speed=self.number(1.,.05,20.,2)
             self.length_targets.append(target);self.length_speeds.append(speed)
             independent.addWidget(target,1+axis,1);independent.addWidget(speed,1+axis,2)
             button=QPushButton(f'Move cable {axis+1} only');self.length_buttons.append(button);independent.addWidget(button,1+axis,3)
@@ -514,7 +518,7 @@ class Window(QMainWindow):
         cable.addWidget(self.setup_enable,0,0,1,2);cable.addWidget(self.reference_button,0,2,1,2)
         self.setup_enable.clicked.connect(lambda:self.command('setup_enable'))
         self.reference_button.clicked.connect(lambda:self.command('reference',at_rest=self.at_rest.isChecked()))
-        self.jog_step=self.number(.5,.05,5.,2);self.jog_speed=self.number(.5,.05,5.,2)
+        self.jog_step=self.number(.5,.05,1000.,2);self.jog_speed=self.number(.5,.05,20.,2)
         cable.addWidget(QLabel('Jog step [mm]'),1,0);cable.addWidget(self.jog_step,1,1)
         cable.addWidget(QLabel('Jog speed [mm/s]'),1,2);cable.addWidget(self.jog_speed,1,3)
         self.jog_buttons=[];self.axis_buttons=self.length_buttons;self.axis_targets=self.length_targets
@@ -524,8 +528,12 @@ class Window(QMainWindow):
             for direction,text in ((-1,'− Step'),(1,'+ Step')):
                 button=QPushButton(text);row.addWidget(button);self.jog_buttons.append(button)
                 button.clicked.connect(lambda checked=False,a=axis,d=direction:self.command('jog',axis=a,delta_mm=d*self.jog_step.value(),speed_mm_s=self.jog_speed.value()))
+        both_row=QHBoxLayout();cable.addLayout(both_row,4,0,1,4)
+        for title,direction in [('Both −',-1),('Both +',1)]:
+            button=QPushButton(title);both_row.addWidget(button);self.jog_buttons.append(button)
+            button.clicked.connect(lambda checked=False,d=direction:self.command('jog_pair',delta_mm=d*self.jog_step.value(),speed_mm_s=self.jog_speed.value()))
         hint=StatusLabel('− reduces / + increases cable length. Wait for HOLDING before the next step. Declare rest only at the known physical rest; Stop / Hold retains torque.',3)
-        cable.addWidget(hint,4,0,1,4)
+        cable.addWidget(hint,5,0,1,4)
 
         telemetry_page=QWidget();telemetry_layout=QVBoxLayout(telemetry_page);self.motor_tabs.addTab(telemetry_page,'Lengths / timing')
         self.telemetry=StatusLabel('Lengths [mm] — MuJoCo follows encoder changes from physical rest.');telemetry_layout.addWidget(self.telemetry)
@@ -542,24 +550,28 @@ class Window(QMainWindow):
         self.duration=QComboBox()
         for minutes in (10,20,30,45,60):self.duration.addItem(f'{minutes} min',minutes*60)
         session_controls.addWidget(QLabel('Session duration'),0,0);session_controls.addWidget(self.duration,0,1)
-        self.difference_limit=self.number(70.,1.,220.,1)
+        self.difference_limit=self.number(self.motion_profile['difference_mm'],1.,10000.,1)
         session_controls.addWidget(QLabel('Max difference [mm]'),0,2);session_controls.addWidget(self.difference_limit,0,3)
         self.difference_limit.valueChanged.connect(self.change_motion_limit)
         self.motion_hint=StatusLabel();session_controls.addWidget(self.motion_hint,1,0,1,4)
         self.record_button=QPushButton('Start recording');self.record_button.clicked.connect(self.toggle_recording);session_controls.addWidget(self.record_button,2,0)
+        self.motion_settings_button=QPushButton('Cable references / limits…')
+        session_controls.addWidget(self.motion_settings_button,4,0,1,4)
+        self.motion_settings_button.clicked.connect(self.edit_motion_settings)
+        self.motion_summary=StatusLabel('',3);session_controls.addWidget(self.motion_summary,5,0,1,4)
         self.record_status=StatusLabel('Preview only: no images saved. Record limit: 60 s / 250 MiB per session.');session_controls.addWidget(self.record_status,2,1,1,3)
         self.review_button=QPushButton('Review pending run data…');session_controls.addWidget(self.review_button,3,0,1,4);self.review_button.clicked.connect(self.recover_runs)
         campaign_page=QWidget();campaign_layout=QVBoxLayout(campaign_page);self.motor_tabs.addTab(campaign_page,'Campaign')
         campaign_button=QPushButton('Plan / run campaign · review captured poses…');campaign_layout.addWidget(campaign_button)
         campaign_button.clicked.connect(self.open_campaign)
         self.campaign_status=StatusLabel('Acquire a complete journey, then fit shared k₂ and review individual poses.',3);campaign_layout.addWidget(self.campaign_status)
-        campaign_note=QLabel('Default: 73 held poses. Choose 30 min in Session / data before Connect.\nOne JPEG per pose; no continuous recording required. Stop / Hold aborts the sequence.')
+        campaign_note=QLabel('Draft 73 poses or generate a random journey. Simulate and approve before Start.\nChoose session duration before Connect. One JPEG per held pose; STOP aborts the sequence.')
         campaign_note.setWordWrap(True);campaign_layout.addWidget(campaign_note);campaign_layout.addStretch()
         if demo:
             self.steps=QComboBox();self.steps.addItems(['Hold 1','Hold 2','Hold 3','Hold 4']);self.steps.setCurrentIndex(1)
-            session_controls.addWidget(QLabel('Recorded pose'),4,0);session_controls.addWidget(self.steps,4,1,1,3)
+            session_controls.addWidget(QLabel('Recorded pose'),6,0);session_controls.addWidget(self.steps,6,1,1,3)
             self.steps.currentIndexChanged.connect(lambda i:self.preview.requests.put(('step',i+1)))
-        session_controls.setRowStretch(5,1)
+        session_controls.setRowStretch(7,1)
 
         analysis_panel=QWidget();right=QVBoxLayout(analysis_panel);right.setContentsMargins(6,0,0,0);right.setSpacing(5)
         analysis_panel.setMinimumWidth(380);self.workspace.addWidget(analysis_panel);self.workspace.setSizes([820,500])
@@ -623,10 +635,15 @@ class Window(QMainWindow):
         self.arm_button.clicked.connect(lambda: self.command('arm', at_rest=self.at_rest.isChecked()))
         self.move_button.clicked.connect(lambda: self.command('move', mean_mm=self.mean.value(), difference_mm=self.difference.value(), speed_mm_s=self.speed.value()))
         self.hold_button.clicked.connect(lambda: self.command('hold'))
+        from PySide6.QtGui import QShortcut,QKeySequence
+        self.stop_shortcut=QShortcut(QKeySequence('Escape'),self)
+        self.stop_shortcut.setContext(Qt.ApplicationShortcut)
+        self.stop_shortcut.activated.connect(lambda:self.command('hold'))
         self.disconnect_button.clicked.connect(self.disconnect)
         self.apply_button.clicked.connect(self.apply_parameters)
         self.scan_button.clicked.connect(self.scan)
         self.change_motion_limit(self.difference_limit.value())
+        self.update_motion_widgets()
         self.update_view_visibility()
         self.timer = QTimer(self); self.timer.timeout.connect(self.tick); self.timer.start(100)
         theme_figure(self.figure,self.theme)
@@ -638,6 +655,7 @@ class Window(QMainWindow):
     def save_preferences(self, include_setup=False):
         path=Path('lab.local.json')
         preferences=json.loads(path.read_text()) if path.exists() else {}
+        preferences['motion_profile']=self.motion_profile
         preferences['theme']=self.theme
         preferences['analysis_mode']=self.analysis_mode
         if include_setup:preferences['comparison_setup']=copy.deepcopy(self.comparison_setup)
@@ -819,17 +837,36 @@ class Window(QMainWindow):
 
     def change_motion_limit(self, value):
         self.difference.setRange(-value,value)
-        self.motion_hint.setText(f'Mean/difference mode: |L₁−L₂| ≤ {value:g} mm. Each cable: ±{max(70.,value/2):g} mm from rest. Choose before Connect.')
+        self.motion_profile['difference_mm']=float(value)
+        self.motion_hint.setText(f'Mean/difference: |L₁−L₂| ≤ {value:g} mm, within the cable bounds. Limits lock at Connect.')
         if hasattr(self,'length_targets'):self.update_length_bounds()
 
     def update_length_bounds(self):
-        rests=self.remote.get('rest_lengths_mm',[220.,220.])
-        travel=max(70.,self.difference_limit.value()/2)
+        policy=self.remote.get('motion_limits') or self.motion_profile
         ranges=[]
-        for axis,(box,rest) in enumerate(zip(self.length_targets,rests)):
-            lo,hi=max(.001,rest-travel),rest+travel;box.setRange(lo,hi)
-            ranges.append(f'Cable {axis+1}: {lo:g}–{hi:g} mm')
-        self.length_hint.setText('; '.join(ranges)+'. Independent mode uses these per-cable limits. Speeds: 0.05–5 mm/s.')
+        for axis,(box,(lo,hi)) in enumerate(zip(self.length_targets,policy['absolute_bounds_mm'])):
+            box.setRange(lo,hi);ranges.append(f'Cable {axis+1}: {lo:g}–{hi:g} mm')
+        self.length_hint.setText('; '.join(ranges)+f". Speed ceiling {policy['max_speed_mm_s']:g} mm/s.")
+
+    def update_motion_widgets(self):
+        p=self.motion_profile
+        self.mean.setValue(sum(p['rest_lengths_mm'])/2)
+        self.difference.setValue(p['rest_lengths_mm'][0]-p['rest_lengths_mm'][1])
+        self.update_length_bounds()
+        for box,value in zip(self.length_targets,p['rest_lengths_mm']):box.setValue(value)
+        for box in [self.speed,self.jog_speed,*self.length_speeds]:box.setMaximum(p['max_speed_mm_s'])
+        self.motion_summary.setText(f"GUI references: {p['rest_lengths_mm'][0]:.3f} / {p['rest_lengths_mm'][1]:.3f} mm. "
+            f"Speed ≤ {p['max_speed_mm_s']:g} mm/s; setup jog travel ±{p['setup_travel_mm']:g} mm. Sent to WSL at Connect.")
+        self.show_targets()
+
+    def edit_motion_settings(self):
+        if self.session or self.connecting or self.closing:return
+        from motion_settings import MotionSettings
+        dialog=MotionSettings(self)
+        if dialog.exec():
+            self.motion_profile=dialog.profile;self.config['motion_profile']=copy.deepcopy(dialog.profile)
+            self.update_motion_widgets();self.save_preferences()
+            self.command_status.setText('Saved next-session references and bounds. Mean and cable targets updated. Re-preview campaigns after changes.')
 
     def sync_length_speeds(self, *_):
         linked=self.same_speed.isChecked()
@@ -933,13 +970,14 @@ class Window(QMainWindow):
             self.stop_setup_preview(connect_after=True);return
         self.connecting = True
         seconds=self.duration.currentData();limit=self.difference_limit.value()
+        profile=copy.deepcopy(self.motion_profile)
         self.banner.setText('Connecting — SSH may ask for your key passphrase in the terminal')
         self.remote = {}; self.latest = None; self.last_analysis = None; self.last_model=self.last_video=self.last_vision=None
         self.at_rest.setChecked(False); self.history.clear()
         def work():
             try:
                 self.session = WorkstationSession(self.rig, 'logs')
-                self.session.max_seconds=seconds; self.session.difference_limit_mm=limit
+                self.session.max_seconds=seconds; self.session.difference_limit_mm=limit;self.session.motion_profile=profile
                 if self.closing:self.session.cancel.set()
                 self.session.connect()
                 self.notifications.put(('connected', None))
@@ -956,6 +994,8 @@ class Window(QMainWindow):
         self.preview.start()
 
     def command(self, action, **values):
+        if action=='hold' and self.campaign_window and self.campaign_window.simulation_dialog:
+            self.campaign_window.simulation_dialog.cancel.set()
         if self.campaign_active():
             if action=="hold":self.campaign_window.abort("User pressed Stop / Hold");return
             self.command_status.setText("Campaign owns motion. Stop the campaign before using manual motion.");return
@@ -1214,7 +1254,7 @@ class Window(QMainWindow):
     def export_sweep(self,path):
         if not self.sweep_result:raise ValueError('Run a sweep first.')
         scan=copy.deepcopy(self.sweep_result);scan['selected_k2']=self.selected_k
-        scan['version']='0.8.0';scan['applied_k2']=self.fit['candidate']['parameters']['k2']
+        scan['version']='0.9.0';scan['applied_k2']=self.fit['candidate']['parameters']['k2']
         scan['applied_parameters']=copy.deepcopy(self.fit['candidate']['parameters'])
         path=Path(path).with_suffix('.png')
         figure=Figure(figsize=(8,5),layout='constrained');ax=figure.subplots()
@@ -1373,7 +1413,7 @@ class Window(QMainWindow):
                         f" | {rec.get('seconds',0):.1f}/60 s | {rec.get('bytes',0)/1048576:.1f}/250 MiB | "+rec.get('reason',''))
                     self.banner.setText(f'{event["session"]} | {event["phase"]} | {event["elapsed_s"]:.0f}/{event.get("session_limit_s",600)} s')
                     if event.get('rest_lengths_mm'):
-                        self.difference_limit.setMaximum(min(event['rest_lengths_mm']));self.update_length_bounds()
+                        self.update_length_bounds()
                 elif event['type'] in ('accepted', 'rejected', 'starting', 'closing', 'startup_failed'):
                     self.command_status.setText(event.get('message', event['type']))
                     if event['type'] == 'startup_failed': self.disconnect()
@@ -1469,13 +1509,14 @@ class Window(QMainWindow):
         ready = self.session is not None and not self.connecting and not self.closing
         self.camera_toggle.setEnabled(not self.connecting and not self.closing and not self.setup_stopping and not self.setup_connecting and not self.review_busy)
         self.update_view_visibility()
+        self.motion_settings_button.setEnabled(not self.session and not self.connecting and not self.closing)
         self.duration.setEnabled(not self.session and not self.connecting and not self.closing)
         self.difference_limit.setEnabled(not self.session and not self.connecting and not self.closing)
         self.connect_button.setEnabled(not self.demo and self.session is None and not self.connecting and not self.closing and not self.setup_connecting and not self.setup_stopping and not self.review_busy)
         self.review_button.setEnabled(not self.demo and self.session is None and not self.setup_session and not self.setup_connecting and not self.connecting and not self.closing and not self.review_busy)
         self.disconnect_button.setEnabled(not self.demo and (self.session is not None or self.connecting) and not self.closing)
         self.arm_button.setEnabled(ready and self.remote.get('phase') == 'READY_DISABLED' and self.at_rest.isChecked() and bool(fresh))
-        self.hold_button.setEnabled(ready)
+        self.hold_button.setEnabled(self.session is not None and not self.closing)
         self.move_button.setEnabled(ready and self.remote.get('phase') == 'HOLDING' and bool(fresh))
         self.mean_button.setEnabled(ready and self.remote.get('phase')=='HOLDING' and bool(fresh))
         self.setup_enable.setEnabled(ready and self.remote.get('phase')=='READY_DISABLED' and bool(fresh))

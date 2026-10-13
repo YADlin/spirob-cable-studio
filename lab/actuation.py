@@ -26,14 +26,14 @@ def targets(mean_mm, difference_mm, speed_mm_s, rests, difference_limit_mm=70.):
     values = (mean_mm, difference_mm, speed_mm_s)
     if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in values):
         raise ValueError('Mean, difference and speed must be finite numbers')
-    if not .05 <= speed_mm_s <= 5:
-        raise ValueError('This pilot uses speeds from 0.05 to 5 mm/s')
+    if not .05 <= speed_mm_s <= limits(rests,difference_limit_mm)['max_speed_mm_s']:
+        raise ValueError('Speed exceeds the session ceiling (controller maximum 20 mm/s)')
     policy = limits(rests, difference_limit_mm)
     if abs(difference_mm) > policy['difference_mm']:
         raise ValueError(f"Full cable difference exceeds the selected ±{policy['difference_mm']:g} mm limit")
     lengths = [mean_mm + difference_mm / 2, mean_mm - difference_mm / 2]
-    if any(length <= 0 or abs(length - rest) > policy['travel_mm'] for length, rest in zip(lengths, rests)):
-        raise ValueError(f"A target exceeds ±{policy['travel_mm']:g} mm travel from rest or is nonpositive")
+    if any(not lo <= length <= hi for length,(lo,hi) in zip(lengths,policy['absolute_bounds_mm'])):
+        raise ValueError('A target is outside the configured cable bounds: '+str(policy['absolute_bounds_mm'])+' mm')
     return lengths
 
 
@@ -43,12 +43,11 @@ def independent_targets(lengths, speeds, rests, difference_limit_mm=70.):
         raise ValueError('Provide two cable lengths and two speeds.')
     if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in [*lengths, *speeds]):
         raise ValueError('Cable lengths and speeds must be finite numbers.')
-    if any(not .05 <= speed <= 5. for speed in speeds):
-        raise ValueError('Each cable speed must be 0.05..5 mm/s.')
-    travel = limits(rests, difference_limit_mm)['travel_mm']
-    for i, (length, rest) in enumerate(zip(lengths, rests)):
-        if length <= 0 or abs(length-rest) > travel:
-            raise ValueError(f'Cable {i+1}: use {max(0.,rest-travel):g}..{rest+travel:g} mm (positive lengths only).')
+    if any(not .05 <= speed <= limits(rests,difference_limit_mm)['max_speed_mm_s'] for speed in speeds):
+        raise ValueError('Each speed must be within 0.05 mm/s and the session ceiling.')
+    bounds=limits(rests,difference_limit_mm)['absolute_bounds_mm']
+    for i,(length,(lo,hi)) in enumerate(zip(lengths,bounds)):
+        if not lo<=length<=hi:raise ValueError(f'Cable {i+1}: use {lo:g}..{hi:g} mm.')
     return list(lengths)
 
 
@@ -138,10 +137,20 @@ def dispatch(message, motor, rests, preview_fresh, difference_limit_mm=70.):
             raise ValueError('Setup enable requires both motors connected and disabled')
         motor.submit('enable', {'indices':[0,1]})
         return 'Enabled for small setup jogs. Absolute lengths remain unreferenced.'
+    if action == 'jog_pair':
+        speed=message.get('speed_mm_s');delta=message.get('delta_mm')
+        policy=limits(rests,difference_limit_mm)
+        if any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) for v in (speed,delta)) or not .05<=speed<=policy['max_speed_mm_s'] or not 0<abs(delta)<=1000:
+            raise ValueError('Use nonzero jog up to 1000 mm and a speed within the session ceiling.')
+        axes=motor.snapshot.get('axes',[])
+        if len(axes)!=2 or motor.pending or not all(a['enabled'] and a['state']=='HOLDING' for a in axes):raise ValueError('Wait for both motors to hold')
+        if motor.referenced:independent_targets([a['absolute_mm']+delta for a in axes],[speed,speed],rests,difference_limit_mm)
+        motor.submit('jog_pair',dict(deltas_mm=[delta,delta],speed_mm_s=speed))
+        return 'Paired jog dispatched; both endpoints validated. Serial commits are closely spaced, not synchronous.'
     if action in ('jog', 'axis', 'mean'):
         speed=message.get('speed_mm_s')
-        if isinstance(speed,bool) or not isinstance(speed,(int,float)) or not math.isfinite(speed) or not .05<=speed<=5:
-            raise ValueError('Speed must be 0.05..5 mm/s')
+        if isinstance(speed,bool) or not isinstance(speed,(int,float)) or not math.isfinite(speed) or not .05<=speed<=limits(rests,difference_limit_mm)['max_speed_mm_s']:
+            raise ValueError('Speed exceeds session ceiling')
         axes=motor.snapshot.get('axes', [])
         if len(axes)!=2 or motor.pending or not all(a['state']=='HOLDING' and a['enabled'] for a in axes):
             raise ValueError('Wait for both motors to hold before another command')
@@ -159,7 +168,7 @@ def dispatch(message, motor, rests, preview_fresh, difference_limit_mm=70.):
         if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value):
             raise ValueError('Cable target must be finite')
         if action=='jog':
-            if not 0<abs(value)<=5: raise ValueError('Jog step must be greater than zero and at most 5 mm')
+            if not 0<abs(value)<=1000: raise ValueError('Jog step must be greater than zero and at most 1000 mm; endpoint limits still apply')
             if motor.referenced:
                 lengths=[a['absolute_mm'] for a in axes];lengths[axis]+=value
                 targets(sum(lengths)/2,lengths[0]-lengths[1],speed,rests,difference_limit_mm)
@@ -430,6 +439,7 @@ def main():
     parser.add_argument('--check-only', action='store_true')
     parser.add_argument('--max-seconds', type=int, choices=(600,1200,1800,2700,3600), default=600)
     parser.add_argument('--difference-limit-mm', type=float, default=70.)
+    parser.add_argument('--motion-profile-b64')
     args = parser.parse_args()
     rig = json.loads(args.rig.read_text())['wsl']
     repo = Path(rig['motor_repo'])
@@ -438,9 +448,17 @@ def main():
     from spirob_cable.config import RigSettings
     from spirob_experiment.camera_client import CameraClient
     cfg = RigSettings.load(repo / 'config.json')
+    configured_references=[a.rest_length_mm for a in cfg.selected]
+    session_policy=args.difference_limit_mm
+    if args.motion_profile_b64:
+        from motion_profile import decode_profile
+        from dataclasses import replace
+        session_policy=decode_profile(args.motion_profile_b64)
+        cfg=replace(cfg,axes=tuple(replace(a,rest_length_mm=r,setup_travel_mm=session_policy['setup_travel_mm']) for a,r in zip(cfg.axes,session_policy['rest_lengths_mm'])))
     if args.check_only:
         cfg.validate()
-        emit(type='check', motor_repo=str(repo), axes=[{'port': a.port, 'device_id': a.device_id,
+        emit(type='check', motor_repo=str(repo), reference_source='GUI session profile' if args.motion_profile_b64 else 'WSL config',
+             configured_rest_lengths_mm=configured_references, axes=[{'port': a.port, 'device_id': a.device_id,
              'rest_length_mm': a.rest_length_mm, 'usb_present': Path(a.port).exists()} for a in cfg.selected],
              camera_key_present=Path(rig['camera_ssh_key']).is_file(),
              camera_agent_socket_present=(Path.home()/'.ssh/spirob-camera-agent.sock').is_socket(),
@@ -460,7 +478,7 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         with CameraTunnel(rig, token):
             result = run_session(rig, cfg, CameraClient('http://127.0.0.1:8766', token), inbox,
-                                 max_seconds=args.max_seconds,difference_limit_mm=args.difference_limit_mm)
+                                 max_seconds=args.max_seconds,difference_limit_mm=session_policy)
     return 0 if result['state'] == 'COMPLETE' else 1
 
 

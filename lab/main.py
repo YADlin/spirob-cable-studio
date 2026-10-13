@@ -18,9 +18,13 @@ def main():
     config = json.loads(Path('config.json').read_text())
     if Path('lab.local.json').is_file():
         preferences=json.loads(Path('lab.local.json').read_text())
-        for key in ('theme','comparison_setup','analysis_mode'):
+        for key in ('theme','comparison_setup','analysis_mode','motion_profile'):
             if key in preferences:config[key]=preferences[key]
-    fit = json.loads(Path('calibration/pilot_fit.json').read_text())
+    if args.demo:
+        # The bundled photographs belong to the previous robot, not the new XML.
+        config.update(model='model/spirob_robot.xml',fit='calibration/pilot_fit.json')
+        config.pop('comparison_setup',None);config.pop('motion_profile',None)
+    fit = json.loads(Path(config.get('fit','calibration/pilot_fit.json')).read_text())
     rig = None if args.demo else json.loads(rig_path.read_text())
     application = QApplication([])
     window = Window(config, fit, rig, args.demo)

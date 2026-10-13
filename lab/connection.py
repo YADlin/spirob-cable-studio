@@ -135,6 +135,7 @@ class WorkstationSession:
         self.final = None
         self.max_seconds = 600
         self.difference_limit_mm = 70.
+        self.motion_profile = None
         self.ssh_directory = tempfile.TemporaryDirectory(prefix='spirob-ssh-')
         self.log_dir = Path(log_dir).resolve()/'runs'/('session_'+uuid.uuid4().hex)
         self.log_dir.mkdir(parents=True, exist_ok=False)
@@ -162,7 +163,8 @@ class WorkstationSession:
         # Persist intent before launch; even a lost session ID remains reviewable.
         self.update_journal(remote_started=True)
         self.control = subprocess.Popen(common + [self.rig['ssh_host'], wsl_command(self.rig, 'actuation.py',
-            '--max-seconds', str(self.max_seconds), '--difference-limit-mm', str(self.difference_limit_mm))],
+            '--max-seconds', str(self.max_seconds), '--difference-limit-mm', str(self.difference_limit_mm),
+            *(['--motion-profile-b64', __import__('motion_profile').encode_profile(self.motion_profile)] if self.motion_profile else []))],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr, text=True, bufsize=1)
         threading.Thread(target=self._read, daemon=True).start()
         threading.Thread(target=self._heartbeat, daemon=True).start()

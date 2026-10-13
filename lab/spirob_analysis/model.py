@@ -38,6 +38,15 @@ class SpiRobModel:
         mujoco.mj_forward(m, self.d)
         self.neutral_lengths = self.d.actuator_length.copy()
         self.reference_origin = self.d.body("link_002").xpos.copy()
+        # Project onto the robot's bending plane, including upright XZ models.
+        self.vertical = self.d.site('tip_site').xpos-self.d.xanchor[0]
+        self.vertical /= np.linalg.norm(self.vertical)
+        normal=self.d.xaxis[1].copy()
+        self.lateral=np.cross(self.vertical,normal)
+        self.lateral/=np.linalg.norm(self.lateral)
+        self.vertical=np.cross(normal,self.lateral)
+        if not np.allclose(np.abs(self.d.xaxis@normal),1,atol=1e-6):
+            raise ValueError('The static adapter requires parallel planar hinge axes.')
         self.reference_gravity_energy = -np.sum(m.body_mass[:, None] * self.d.xipos * m.opt.gravity)
         self.body_ids = [m.body(f"link_{i:03d}").id for i in range(2, m.njnt + 1)]
         # Physical diagnostic landmarks use joint anchors, not uniformly spaced
@@ -79,25 +88,25 @@ class SpiRobModel:
         offsets = np.array([mean_offset_mm + difference_offset_mm / 2,
                             mean_offset_mm - difference_offset_mm / 2])
         ctrl = self.neutral_lengths + (np.asarray(displacement_mm) + offsets) / 1000
-        if np.any(ctrl < self.m.actuator_ctrlrange[:, 0]) or np.any(ctrl > self.m.actuator_ctrlrange[:, 1]):
+        if not np.isfinite(ctrl).all() or np.any(ctrl < self.m.actuator_ctrlrange[:, 0]-1e-9) or np.any(ctrl > self.m.actuator_ctrlrange[:, 1]+1e-9):
             raise ValueError("Mapped cable lengths exceed this model's actuator range.")
-        return ctrl
+        return np.clip(ctrl,self.m.actuator_ctrlrange[:,0],self.m.actuator_ctrlrange[:,1])
 
     def curve(self):
         p = np.vstack([self.d.xpos[self.body_ids], self.d.site("tip_site").xpos])
-        # Uploaded model bends in world XY at nearly constant Z. Keep its orientation/gravity.
-        return np.column_stack([p[:, 0] - self.reference_origin[0],
-                                self.reference_origin[1] - p[:, 1]])
+        # Use the neutral bending plane; preserve the model orientation and gravity.
+        relative=p-self.reference_origin
+        return np.column_stack([relative@self.lateral,relative@self.vertical])
 
     def joint_curve(self):
         p = np.vstack([self.d.xanchor[1:], self.d.site("tip_site").xpos])
-        return np.column_stack([p[:, 0] - self.reference_origin[0],
-                                self.reference_origin[1] - p[:, 1]])
+        relative=p-self.reference_origin
+        return np.column_stack([relative@self.lateral,relative@self.vertical])
 
     def base_point(self):
         """Fixed joint-1 anchor in the same planar coordinates as curve()."""
         p = self.d.xanchor[0]
-        return np.array([p[0]-self.reference_origin[0], self.reference_origin[1]-p[1]])
+        return np.array([(p-self.reference_origin)@self.lateral, (p-self.reference_origin)@self.vertical])
 
     def landmark_points(self, names, mode='joints'):
         curve = self.joint_curve()

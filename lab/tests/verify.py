@@ -250,7 +250,7 @@ def driver_checks(motor_source, capture_source):
                 until(lambda e:e['type']=='accepted')
                 paired=until(lambda e:e.get('phase')=='HOLDING' and abs(sum(a['absolute_mm'] for a in e['axes'])/2-221.5)<.03)
                 require(abs(paired['axes'][0]['absolute_mm']-paired['axes'][1]['absolute_mm']-difference)<.03,'Mean-only changed measured difference')
-                send('jog',axis=0,delta_mm=6,speed_mm_s=1);until(lambda e:e['type']=='rejected')
+                send('jog',axis=0,delta_mm=1001,speed_mm_s=1);until(lambda e:e['type']=='rejected')
                 send('disconnect')
             elif scenario=='camera_failure':
                 camera.fail=True
@@ -289,7 +289,8 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--motor-source'); parser.add_argument('--capture-source')
     args=parser.parse_args()
-    config=json.loads(Path('config.json').read_text());fit=json.loads(Path('calibration/pilot_fit.json').read_text())
+    config=json.loads(Path('config.json').read_text());config['model']='model/spirob_robot.xml';config.pop('comparison_setup',None)
+    fit=json.loads(Path('calibration/pilot_fit.json').read_text())
     result={'science':science_checks(config,fit), 'dynamics':dynamic_checks(config,fit)}
     if args.motor_source and args.capture_source:
         result['demo_driver']=driver_checks(args.motor_source,args.capture_source)

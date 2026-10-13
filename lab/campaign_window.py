@@ -20,15 +20,15 @@ from campaign_analysis import auto_measure,fit_campaign,add_per_pose,CampaignCan
 class CampaignWindow(QDialog):
     def __init__(self,host):
         super().__init__(host);self.host=host;self.store=None;self.runner=None;self.inspector=None
-        self.quiescing=False
+        self.quiescing=False;self.approved_review=None;self.simulation_dialog=None
         self.messages=queue.Queue();self.worker=None;self.capture_worker=None;self.cancel=threading.Event();self.busy=False
         self.setWindowTitle('SpiRob — campaigns');self.setMinimumSize(960,620)
         screen=QApplication.primaryScreen().availableGeometry();self.resize(min(1160,max(960,screen.width()-48)),min(730,max(620,screen.height()-64)))
-        root=QVBoxLayout(self);self.status=QLabel('Draft a plan, inspect Preflight, then Start after Connect and Enable at rest.')
+        root=QVBoxLayout(self);self.status=QLabel('Draft or generate a plan → simulate → approve → Connect / enable at rest → Start campaign.')
         self.status.setWordWrap(True);self.status.setFixedHeight(50);root.addWidget(self.status)
         bar=QHBoxLayout();root.addLayout(bar)
-        self.start_button=QPushButton('Start campaign');self.start_button.clicked.connect(self.start);bar.addWidget(self.start_button)
-        self.stop_button=QPushButton('Stop campaign + hold');self.stop_button.clicked.connect(lambda:self.abort('User stopped campaign'));bar.addWidget(self.stop_button)
+        self.start_button=QPushButton('Start approved campaign');self.start_button.clicked.connect(self.start);bar.addWidget(self.start_button)
+        self.stop_button=QPushButton('STOP — hold both');self.stop_button.clicked.connect(lambda:self.host.command('hold'));bar.addWidget(self.stop_button)
         self.open_button=QPushButton('Open captured campaign…');self.open_button.clicked.connect(self.open);bar.addWidget(self.open_button)
         self.folder_button=QPushButton('Open data folder');self.folder_button.clicked.connect(self.open_folder);bar.addWidget(self.folder_button)
         self.tabs=QTabWidget();root.addWidget(self.tabs,1)
@@ -43,7 +43,7 @@ class CampaignWindow(QDialog):
         self.table=QTableWidget(0,7);self.table.setHorizontalHeaderLabels(['Motion','x [mm]','y [mm]','Speed 1','Speed 2','Intervals','Label'])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch);pl.addWidget(self.table,1)
         buttons=QHBoxLayout();pl.addLayout(buttons)
-        for title,handler in [('Default 73 poses',self.defaults),('Add row',self.add_row),('Remove row',self.remove_row),('Load plan…',self.load_plan),('Save plan…',self.save_plan)]:
+        for title,handler in [('Default 73 poses',self.defaults),('Random generator…',self.generate_random),('Simulate / review',self.simulate_plan),('Add row',self.add_row),('Remove row',self.remove_row),('Load plan…',self.load_plan),('Save plan…',self.save_plan)]:
             b=QPushButton(title);b.clicked.connect(handler);buttons.addWidget(b)
         self.preflight_text=QLabel('Preflight expands every row and checks the session motion envelope, storage budget and remaining time.');self.preflight_text.setWordWrap(True);self.preflight_text.setFixedHeight(65);pl.addWidget(self.preflight_text)
         poses_page=QWidget();pv=QVBoxLayout(poses_page);self.tabs.addTab(poses_page,'Captured poses / batch review')
@@ -70,6 +70,7 @@ class CampaignWindow(QDialog):
         self.xaxis=QComboBox();self.xaxis.addItems(['Measured cable difference [mm]','Measured distal lateral offset [mm]','Pose order']);self.xaxis.currentIndexChanged.connect(self.draw);plotbar.addWidget(self.xaxis)
         self.figure=Figure(figsize=(10,4),layout='constrained');self.canvas=FigureCanvasQTAgg(self.figure)
         rv.addWidget(NavigationToolbar2QT(self.canvas,self));rv.addWidget(self.canvas,1)
+        self.table.itemChanged.connect(self.invalidate_review);self.dwell.valueChanged.connect(self.invalidate_review)
         self.defaults();self.timer=QTimer(self);self.timer.timeout.connect(self.poll);self.timer.start(100)
 
     @staticmethod
@@ -82,20 +83,21 @@ class CampaignWindow(QDialog):
     def set_status(self,text):self.status.setText(text);self.status.setToolTip(text)
 
     def defaults(self):
-        rests=self.host.remote.get('rest_lengths_mm') or [a['rest_length_mm'] for a in (self.host.rig or {}).get('wsl',{}).get('axes',[{'rest_length_mm':220.},{'rest_length_mm':220.}])]
+        rests=self.host.motion_profile['rest_lengths_mm']
         self.set_rows(default_plan(rests))
 
     def set_rows(self,rows):
-        self.table.setRowCount(0)
+        self.invalidate_review();self.table.setRowCount(0)
         for row in rows:self.add_row(row)
 
     def add_row(self,row=None):
-        if not isinstance(row,dict):row=dict(mode='Both cables',x=220,y=220,s1=1,s2=1,steps=1,label='')
-        i=self.table.rowCount();self.table.insertRow(i);mode=QComboBox();mode.addItems(MODES);mode.setCurrentText(row['mode']);self.table.setCellWidget(i,0,mode)
+        if not isinstance(row,dict):
+            a,b=self.host.motion_profile['rest_lengths_mm'];row=dict(mode='Both cables',x=a,y=b,s1=min(1,self.host.motion_profile['max_speed_mm_s']),s2=min(1,self.host.motion_profile['max_speed_mm_s']),steps=1,label='')
+        i=self.table.rowCount();self.table.insertRow(i);mode=QComboBox();mode.addItems(MODES);mode.setCurrentText(row['mode']);self.table.setCellWidget(i,0,mode);mode.currentIndexChanged.connect(self.invalidate_review)
         for j,key in enumerate(('x','y','s1','s2','steps','label'),1):self.table.setItem(i,j,QTableWidgetItem(str(row[key])))
 
     def remove_row(self):
-        if self.table.currentRow()>=0:self.table.removeRow(self.table.currentRow())
+        if self.table.currentRow()>=0:self.invalidate_review();self.table.removeRow(self.table.currentRow())
 
     def rows(self):
         result=[]
@@ -119,14 +121,14 @@ class CampaignWindow(QDialog):
 
     def build_plan(self,require_live=False):
         from analysis import inputs_at
-        item=self.host.manual_source();rests=self.host.remote.get('rest_lengths_mm') or [a['rest_length_mm'] for a in (self.host.rig or {}).get('wsl',{}).get('axes',[{'rest_length_mm':220.},{'rest_length_mm':220.}])]
+        item=self.host.manual_source();rests=self.host.motion_profile['rest_lengths_mm']
         initial=rests[:]
         if item and item['packet'].get('motor_active'):
             initial,_=inputs_at(item['packet'],item['packet']['t_s'],self.host.config['live']['max_input_gap_s']);initial=initial.tolist()
         if require_live and (self.host.demo or not self.host.session or self.host.closing or self.host.connecting or
             self.host.remote.get('phase')!='HOLDING' or self.host.remote.get('pending') or not item or self.host.pending_comparison_change):
             raise ValueError('Connect, enable/declare rest and wait for fresh HOLDING feedback before starting.')
-        plan=expand_plan(self.rows(),initial,rests,self.host.difference_limit.value(),self.dwell.value(),self.host.config['live']['settle_window_s'])
+        plan=expand_plan(self.rows(),initial,rests,self.host.motion_profile,self.dwell.value(),self.host.config['live']['settle_window_s'])
         remaining=self.host.remote.get('session_limit_s',self.host.duration.currentData())-self.host.remote.get('elapsed_s',0)
         estimate=(len(item['packet']['image_b64'])*3/4 if item else 300000)*len(plan['poses'])
         text=f'{len(plan["poses"])} captures · estimate {plan["estimated_seconds"]/60:.1f} min; reserve {plan["reserved_seconds"]/60:.1f} min · remaining {remaining/60:.1f} min. Images ≈ {estimate/1048576:.1f} MiB at current JPEG size; hard cap 256 MiB. '
@@ -136,6 +138,41 @@ class CampaignWindow(QDialog):
         if estimate>256*1048576:raise ValueError('Estimated images exceed 256 MiB. Split the campaign.')
         if require_live and (self.host.scan_busy or self.host.manual_capture_busy):raise ValueError('Wait for the current single-pose analysis to finish.')
         return plan,item
+
+    def invalidate_review(self,*_):
+        if self.approved_review:self.set_status('Plan changed. Simulate and approve the revised journey before starting.')
+        self.approved_review=None
+
+    def review_context(self):
+        from campaign_preview import review_context
+        return review_context(self.rows(),self.dwell.value(),self.host.motion_profile,self.host.config['model'],
+            self.host.fit['candidate']['parameters'],self.host.current_d2,self.host.comparison_setup)
+
+    def generate_random(self):
+        from campaign_preview_window import RandomCampaign
+        dialog=RandomCampaign(self,self.host.motion_profile)
+        if dialog.exec():
+            self.set_rows(dialog.rows);self.set_status('Random draft ready. Use Simulate / review, then explicitly approve the path.')
+
+    def simulate_plan(self):
+        if self.active or self.busy:return
+        try:
+            if self.host.pending_comparison_change:raise ValueError('Wait for the model parameter change to finish.')
+            plan,_=self.build_plan()
+            if self.simulation_dialog:
+                self.simulation_dialog.cancel.set();self.simulation_dialog.close()
+            from campaign_preview_window import CampaignPreview
+            self.invalidate_review()
+            self.simulation_dialog=CampaignPreview(self,plan,self.host.config['model'],self.review_context(),self.approve_preview)
+            self.simulation_dialog.show()
+        except Exception as exc:self.set_status('Preview: '+str(exc))
+
+    def approve_preview(self,review):
+        from campaign_preview import digest
+        if review['fingerprint']!=digest(self.review_context()):
+            self.set_status('Settings changed while simulating. Re-preview the current journey.');return
+        self.approved_review=copy.deepcopy(review)
+        self.set_status('Simulated journey approved. Start sends this exact plan after Connect, enable/reference, and a starting-pose check.')
 
     def preflight(self):
         try:
@@ -154,7 +191,10 @@ class CampaignWindow(QDialog):
         if self.quiescing:return
         if self.active or self.busy:return
         try:
-            plan,item=self.build_plan(True)
+            live_plan,item=self.build_plan(True)
+            from campaign_preview import require_review
+            plan=require_review(self.approved_review,self.review_context(),live_plan['initial_lengths_mm'])
+            plan['simulation_review']={k:copy.deepcopy(self.approved_review[k]) for k in ('fingerprint','context','summary')}
             if self.host.remote.get('session',item['packet']['session'])!=item['packet']['session']:
                 raise ValueError('Camera and motor session identities do not match.')
             plan['session']=item['packet']['session']
@@ -199,6 +239,7 @@ class CampaignWindow(QDialog):
     def begin_shutdown(self):
         self.quiescing=True;self.abort('Disconnected; completed campaign poses retained')
         self.cancel.set()
+        if self.simulation_dialog:self.simulation_dialog.close()
         if self.inspector:self.inspector.close()
         self.setEnabled(False)
 
@@ -213,7 +254,8 @@ class CampaignWindow(QDialog):
 
     def shutdown_wait(self):
         self.cancel.set()
-        for thread in (self.capture_worker,self.worker):
+        if self.simulation_dialog:self.simulation_dialog.cancel.set()
+        for thread in (self.capture_worker,self.worker,self.simulation_dialog.worker if self.simulation_dialog else None):
             if thread and thread.is_alive():thread.join()
         # No writer can race the session's Save/Discard operation afterward.
 
@@ -342,8 +384,9 @@ class CampaignWindow(QDialog):
                 index,item=value;self.inspector=CampaignInspector(self.store,index,item,self,self.saved_pose);self.inspector.show()
         active=self.active
         editing=bool(self.inspector and self.inspector.isVisible())
-        self.start_button.setEnabled(not active and not self.busy and not editing and not self.host.demo)
-        self.stop_button.setEnabled(active);self.plan_page.setEnabled(not active and not self.busy and not editing)
+        self.start_button.setEnabled(bool(self.approved_review) and not active and not self.busy and not editing and not self.host.demo)
+        self.start_button.setToolTip('Simulate / review and approve the plan first.' if not self.approved_review else 'Run the approved journey from its reviewed starting lengths.')
+        self.stop_button.setEnabled(bool(self.host.session));self.plan_page.setEnabled(not active and not self.busy and not editing)
         self.open_button.setEnabled(not active and not self.busy and not editing)
         for b in (self.fit_button,self.edit_button,self.next_button,self.exclude_button):b.setEnabled(bool(self.store) and not active and not self.busy and not editing)
         self.individual_button.setEnabled(bool(self.store and self.store.doc.get('analysis')) and not active and not self.busy and not editing)
@@ -352,5 +395,6 @@ class CampaignWindow(QDialog):
     def closeEvent(self,event):
         self.abort('Campaign window closed; held and retained completed poses.')
         self.cancel.set()
+        if self.simulation_dialog:self.simulation_dialog.close()
         if self.inspector:self.inspector.close()
         event.accept()

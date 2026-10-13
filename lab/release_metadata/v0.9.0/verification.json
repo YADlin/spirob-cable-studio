@@ -1,0 +1,545 @@
+{
+  "kind": "SpiRob Lab 0.9.0 software verification",
+  "hardware_operated": false,
+  "runtime": {
+    "python": "3.12",
+    "mujoco": "3.3.7",
+    "numpy": "2.3.5",
+    "scipy": "1.17.0",
+    "PySide6": "6.12.0",
+    "opencv_python_headless": "5.0.0.93",
+    "scikit_image": "0.26.0"
+  },
+  "note": "Verification runtime versions above; user project dependency pins are unchanged from 0.8.0.",
+  "uploaded_new_model_zip_sha256": "a9b645d28d246b2fe3127fde354908fe605597da293c5ac1d59b64b2c8e53ea1",
+  "model_preservation": "Exact equality of compiled geometry, body masses/inertia, gravity, joint settings and tendon routing; only position actuator conversion.",
+  "cli_profile": "PASS read-only remote CLI applies GUI references without changing stored configuration; token is Windows/WSL command-safe.",
+  "focused_checks": {
+    "joints": 21,
+    "neutral_tendon_mm": [
+      227.35331441047117,
+      227.3533144104711
+    ],
+    "tendon_min_mm": [
+      226.50166337934715,
+      227.09991282964288
+    ],
+    "tendon_max_mm": [
+      227.60662206461183,
+      228.20418766906968
+    ],
+    "max_contacts": 0,
+    "poses": [
+      {
+        "number": 1,
+        "command_mm": [
+          227.13351429042888,
+          226.92164325843086
+        ],
+        "control_mm": [
+          227.13351429042885,
+          226.92164325843083
+        ],
+        "tendon_mm": [
+          227.45655193387825,
+          227.25006472157537
+        ],
+        "max_joint_speed_rad_s": 2.7931601480781572e-08,
+        "contacts": 0
+      },
+      {
+        "number": 2,
+        "command_mm": [
+          226.48117010272358,
+          228.20021948700887
+        ],
+        "control_mm": [
+          226.48117010272355,
+          228.20021948700887
+        ],
+        "tendon_mm": [
+          226.52491592640536,
+          228.1809318720448
+        ],
+        "max_joint_speed_rad_s": 2.3081954752400557e-07,
+        "contacts": 0
+      },
+      {
+        "number": 3,
+        "command_mm": [
+          227.70279203073426,
+          227.7156467219302
+        ],
+        "control_mm": [
+          227.70279203073423,
+          227.71564672193017
+        ],
+        "tendon_mm": [
+          227.35315644855032,
+          227.3534723723557
+        ],
+        "max_joint_speed_rad_s": 5.981394854455882e-06,
+        "contacts": 0
+      }
+    ],
+    "simulation_seconds": 11.229999999987166,
+    "mujoco_version": "3.3.7",
+    "timestep_s": 0.0001,
+    "initialization": "Five seconds at the initial commands; actual robot history and motor ramps can differ.",
+    "meaning": "Observed ten_length range for this journey, not a hardware travel rating or guaranteed reachable range.",
+    "tests": "Model, motion bounds, paired jog, STOP, random plans, approval and headless GUI passed; no physical hardware tested."
+  },
+  "lifecycle": {
+    "normal": {
+      "state": "COMPLETE",
+      "error": null,
+      "motor_shutdown": {
+        "worker_exited": true,
+        "disable_confirmed": [
+          true,
+          true
+        ]
+      },
+      "camera_writer_exited": true
+    },
+    "discard": {
+      "state": "COMPLETE",
+      "error": null,
+      "motor_shutdown": {
+        "worker_exited": true,
+        "disable_confirmed": [
+          true,
+          true
+        ]
+      },
+      "camera_writer_exited": true
+    },
+    "discard_then_record": {
+      "state": "COMPLETE",
+      "error": null,
+      "motor_shutdown": {
+        "worker_exited": true,
+        "disable_confirmed": [
+          true,
+          true
+        ]
+      },
+      "camera_writer_exited": true
+    },
+    "setup_controls": {
+      "state": "COMPLETE",
+      "error": null,
+      "motor_shutdown": {
+        "worker_exited": true,
+        "disable_confirmed": [
+          true,
+          true
+        ]
+      },
+      "camera_writer_exited": true
+    },
+    "independent_controls": {
+      "state": "COMPLETE",
+      "error": null,
+      "motor_shutdown": {
+        "worker_exited": true,
+        "disable_confirmed": [
+          true,
+          true
+        ]
+      },
+      "camera_writer_exited": true
+    },
+    "cold_start": {
+      "state": "COMPLETE",
+      "error": null,
+      "motor_shutdown": {
+        "worker_exited": true,
+        "disable_confirmed": [
+          true,
+          true
+        ]
+      },
+      "camera_writer_exited": true
+    },
+    "heartbeat_lost": {
+      "state": "FAILED",
+      "error": "interactive session: RuntimeError: Workstation heartbeat lost",
+      "motor_shutdown": {
+        "worker_exited": true,
+        "disable_confirmed": [
+          true,
+          true
+        ]
+      },
+      "camera_writer_exited": true
+    },
+    "preview_lost": {
+      "state": "FAILED",
+      "error": "interactive session: RuntimeError: Workstation camera preview is stale",
+      "motor_shutdown": {
+        "worker_exited": true,
+        "disable_confirmed": [
+          true,
+          true
+        ]
+      },
+      "camera_writer_exited": true
+    },
+    "camera_failure": {
+      "state": "FAILED",
+      "error": "interactive session: RuntimeError: Injected camera failure",
+      "motor_shutdown": {
+        "worker_exited": true,
+        "disable_confirmed": [
+          true,
+          true
+        ]
+      },
+      "camera_writer_exited": true
+    },
+    "eof": {
+      "state": "FAILED",
+      "error": "Control SSH input closed",
+      "motor_shutdown": {
+        "worker_exited": true,
+        "disable_confirmed": [
+          true,
+          true
+        ]
+      },
+      "camera_writer_exited": true
+    },
+    "timeout": {
+      "state": "FAILED",
+      "error": "interactive session: RuntimeError: Interactive session duration limit reached",
+      "motor_shutdown": {
+        "worker_exited": true,
+        "disable_confirmed": [
+          true,
+          true
+        ]
+      },
+      "camera_writer_exited": true
+    }
+  },
+  "legacy_science": {
+    "science": {
+      "recorded_hold_rmse_px": [
+        7.293832237387996,
+        6.39102445397697,
+        4.8603986130557715,
+        9.811050413983901
+      ],
+      "scaling_cost_bounds_static_damping": "PASS"
+    },
+    "dynamics": {
+      "moving_backbone": "PASS",
+      "moving_stiffness_score_suppressed": "PASS",
+      "stale_reset": "PASS"
+    },
+    "demo_driver": "Not run: source paths were not supplied"
+  },
+  "default_random_journey": {
+    "joints": 21,
+    "neutral_tendon_mm": [
+      227.35331441047117,
+      227.3533144104711
+    ],
+    "tendon_min_mm": [
+      214.97975821753676,
+      213.19112207514806
+    ],
+    "tendon_max_mm": [
+      241.2906297666976,
+      239.54751439340336
+    ],
+    "max_contacts": 0,
+    "poses": [
+      {
+        "number": 1,
+        "command_mm": [
+          231.76660367644257,
+          215.08801383106797
+        ],
+        "control_mm": [
+          231.76660367644254,
+          215.08801383106797
+        ],
+        "tendon_mm": [
+          235.47694358198345,
+          219.15162127913416
+        ],
+        "max_joint_speed_rad_s": 3.62065200308614e-09,
+        "contacts": 0
+      },
+      {
+        "number": 2,
+        "command_mm": [
+          243.79878030474657,
+          220.47029608233143
+        ],
+        "control_mm": [
+          243.79878030474654,
+          220.47029608233143
+        ],
+        "tendon_mm": [
+          233.84851013078006,
+          220.80973074222217
+        ],
+        "max_joint_speed_rad_s": 1.611496745086437e-11,
+        "contacts": 0
+      },
+      {
+        "number": 3,
+        "command_mm": [
+          223.95233585207475,
+          232.0844794950757
+        ],
+        "control_mm": [
+          223.95233585207475,
+          232.0844794950757
+        ],
+        "tendon_mm": [
+          224.12195358361467,
+          230.57282349387913
+        ],
+        "max_joint_speed_rad_s": 6.035976229516985e-09,
+        "contacts": 0
+      },
+      {
+        "number": 4,
+        "command_mm": [
+          240.4573424330987,
+          242.6373908141514
+        ],
+        "control_mm": [
+          240.4573424330987,
+          242.63739081415136
+        ],
+        "tendon_mm": [
+          227.3533144104581,
+          227.35331441048416
+        ],
+        "max_joint_speed_rad_s": 4.217567966092787e-12,
+        "contacts": 0
+      },
+      {
+        "number": 5,
+        "command_mm": [
+          210.29960538589782,
+          216.20271252259877
+        ],
+        "control_mm": [
+          210.29960538589782,
+          216.20271252259877
+        ],
+        "tendon_mm": [
+          224.41560322111266,
+          230.2727907794006
+        ],
+        "max_joint_speed_rad_s": 5.019558578261293e-06,
+        "contacts": 0
+      },
+      {
+        "number": 6,
+        "command_mm": [
+          240.30477595092447,
+          211.53276378664884
+        ],
+        "control_mm": [
+          240.30477595092444,
+          211.53276378664884
+        ],
+        "tendon_mm": [
+          241.28955849930477,
+          213.19207339986477
+        ],
+        "max_joint_speed_rad_s": 1.994624223359854e-09,
+        "contacts": 0
+      },
+      {
+        "number": 7,
+        "command_mm": [
+          212.5103086343414,
+          225.42640963956364
+        ],
+        "control_mm": [
+          212.51030863434138,
+          225.42640963956364
+        ],
+        "tendon_mm": [
+          220.97356106552624,
+          233.6818590583835
+        ],
+        "max_joint_speed_rad_s": 2.6333222582688366e-09,
+        "contacts": 0
+      },
+      {
+        "number": 8,
+        "command_mm": [
+          209.22095685460923,
+          234.2624484041982
+        ],
+        "control_mm": [
+          209.2209568546092,
+          234.26244840419818
+        ],
+        "tendon_mm": [
+          214.98063834808937,
+          239.54650752715045
+        ],
+        "max_joint_speed_rad_s": 2.0297048205790373e-09,
+        "contacts": 0
+      },
+      {
+        "number": 9,
+        "command_mm": [
+          230.7837166560499,
+          231.69583844596994
+        ],
+        "control_mm": [
+          230.78371665604988,
+          231.6958384459699
+        ],
+        "tendon_mm": [
+          227.35331441000514,
+          227.3533144109372
+        ],
+        "max_joint_speed_rad_s": 1.47490884934931e-10,
+        "contacts": 0
+      },
+      {
+        "number": 10,
+        "command_mm": [
+          224.0459548211455,
+          234.26275616155507
+        ],
+        "control_mm": [
+          224.04595482114547,
+          234.26275616155507
+        ],
+        "tendon_mm": [
+          224.2109445849354,
+          230.48447509064144
+        ],
+        "max_joint_speed_rad_s": 6.705989190362207e-09,
+        "contacts": 0
+      },
+      {
+        "number": 11,
+        "command_mm": [
+          226.15504313638925,
+          244.50493676285683
+        ],
+        "control_mm": [
+          226.15504313638922,
+          244.5049367628568
+        ],
+        "tendon_mm": [
+          226.2151100415235,
+          228.49004482586577
+        ],
+        "max_joint_speed_rad_s": 1.1901537237153594e-11,
+        "contacts": 0
+      },
+      {
+        "number": 12,
+        "command_mm": [
+          226.36245407679365,
+          225.6747325706486
+        ],
+        "control_mm": [
+          226.36245407679365,
+          225.6747325706486
+        ],
+        "tendon_mm": [
+          227.68875063549447,
+          227.01774885114148
+        ],
+        "max_joint_speed_rad_s": 3.4137526563488752e-09,
+        "contacts": 0
+      }
+    ],
+    "simulation_seconds": 135.84000000338588,
+    "mujoco_version": "3.3.7",
+    "timestep_s": 0.0001,
+    "initialization": "Five seconds at the initial commands; actual robot history and motor ramps can differ.",
+    "meaning": "Observed ten_length range for this journey, not a hardware travel rating or guaranteed reachable range."
+  },
+  "full_command_range": {
+    "joints": 21,
+    "neutral_tendon_mm": [
+      227.35331441047117,
+      227.3533144104711
+    ],
+    "tendon_min_mm": [
+      153.58653066477274,
+      153.58973562795566
+    ],
+    "tendon_max_mm": [
+      296.9987161562262,
+      297.0012716112683
+    ],
+    "max_contacts": 18,
+    "poses": [
+      {
+        "number": 1,
+        "command_mm": [
+          150.0,
+          300.0
+        ],
+        "control_mm": [
+          150.0,
+          300.0
+        ],
+        "tendon_mm": [
+          153.59703235394454,
+          296.99581959385466
+        ],
+        "max_joint_speed_rad_s": 1.6475301879968768e-07,
+        "contacts": 18
+      },
+      {
+        "number": 2,
+        "command_mm": [
+          300.0,
+          150.0
+        ],
+        "control_mm": [
+          300.0,
+          150.0
+        ],
+        "tendon_mm": [
+          296.99581959610623,
+          153.59703235221806
+        ],
+        "max_joint_speed_rad_s": 1.5853684877791452e-07,
+        "contacts": 18
+      },
+      {
+        "number": 3,
+        "command_mm": [
+          227.35331441047117,
+          227.3533144104711
+        ],
+        "control_mm": [
+          227.35331441047117,
+          227.3533144104711
+        ],
+        "tendon_mm": [
+          227.35331467909543,
+          227.35331414184674
+        ],
+        "max_joint_speed_rad_s": 1.8210361056029185e-06,
+        "contacts": 0
+      }
+    ],
+    "simulation_seconds": 26.239999999952186,
+    "mujoco_version": "3.3.7",
+    "timestep_s": 0.0001,
+    "initialization": "Five seconds at the initial commands; actual robot history and motor ramps can differ.",
+    "meaning": "Observed ten_length range for this journey, not a hardware travel rating or guaranteed reachable range."
+  },
+  "limits": "Software and simulated-driver checks only; physical travel, cable loading and stopping behavior need validation on the rig."
+}

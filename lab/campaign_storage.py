@@ -51,7 +51,7 @@ class CampaignStore:
         cfg=copy.deepcopy(config);cfg['model']='model/'+model.name
         cfg['comparison_setup']=copy.deepcopy(item['setup'])
         fixed=copy.deepcopy(fit);fixed['candidate']['parameters']=copy.deepcopy(item['parameters'])
-        metadata=dict(kind='spirob_campaign',schema=1,version='0.8.0',created_utc=datetime.now(timezone.utc).isoformat(),
+        metadata=dict(kind='spirob_campaign',schema=1,version='0.9.0',created_utc=datetime.now(timezone.utc).isoformat(),
             session=item['packet']['session'],state='collecting',reason='',mode=mode,plan=plan,rows=rows,
             config=cfg,fit=fixed,d2=item['d2'],poses=[],image_bytes=0,budget_bytes=int(budget_mib*1048576),
             model_hashes={p.relative_to(root).as_posix():digest(p.read_bytes()) for p in (root/'model').rglob('*') if p.is_file()},

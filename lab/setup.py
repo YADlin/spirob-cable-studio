@@ -56,12 +56,12 @@ def deploy(rig):
     with tempfile.TemporaryDirectory() as tmp:
         stage = Path(tmp)/runtime.name
         (stage/'spirob_live').mkdir(parents=True)
-        for name in ('connection.py', 'actuation.py', 'motion_limits.py', 'run_storage.py', 'unlock_camera.sh', 'diagnostics.py'):
+        for name in ('connection.py', 'actuation.py', 'motion_limits.py', 'motion_profile.py', 'run_storage.py', 'unlock_camera.sh', 'diagnostics.py'):
             shutil.copy2(ROOT/name, stage/name)
         for name in ('__init__.py', 'server.py', 'packets.py', 'capture.py'):
             shutil.copy2(ROOT/'spirob_live'/name, stage/'spirob_live'/name)
         shutil.copy2(RIG, stage/'rig.local.json')
-        (stage/'DEPLOYMENT.txt').write_text('SpiRob Lab 0.8.0. Generated copy; edit on workstation and redeploy.\n')
+        (stage/'DEPLOYMENT.txt').write_text('SpiRob Lab 0.9.0. Generated copy; edit on workstation and redeploy.\n')
         subprocess.run(['scp', '-r', str(stage), rig['ssh_host']+':.'], check=True)
     token = Path(rig['workstation_token_file']).expanduser()
     if not token.is_file():
@@ -111,7 +111,14 @@ def main():
         from diagnostics import collect
         collect(ROOT, rig)
     elif args.command == 'check':
-        ssh(rig, wsl_command(rig, 'actuation.py', '--check-only'))
+        profile=None
+        for path in (ROOT/'config.json',ROOT/'lab.local.json'):
+            if path.is_file():profile=json.loads(path.read_text()).get('motion_profile',profile)
+        extra=[]
+        if profile:
+            from motion_profile import encode_profile
+            extra=['--motion-profile-b64',encode_profile(profile)]
+        ssh(rig, wsl_command(rig, 'actuation.py', '--check-only',*extra))
     elif args.command == 'unlock':
         words = ['wsl.exe', '-u', rig['wsl']['user'], '--exec', '/bin/bash',
                  rig['wsl']['runtime']+'/unlock_camera.sh', rig['wsl']['camera_ssh_key']]

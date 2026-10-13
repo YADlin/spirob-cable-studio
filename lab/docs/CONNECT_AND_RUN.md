@@ -1,6 +1,6 @@
 # Connect and run from the Ubuntu workstation
 
-For version 0.7.3 use the complete [Operating manual](OPERATING_MANUAL.html), also available from the window. See [stable jogging, zoom and the reorganized layout](UPDATE_0_7_3.md), [separate camera/backbone switches](UPDATE_0_7_1.md) and [independent cable lengths and the two measurement modes](UPDATE_0_7_0.md). For analysis without automatic vision, select Manual points, capture a held pose, place points and sweep.
+For version 0.9.0 read [new model / references / reviewed campaigns](UPDATE_0_9_0.md), then use the complete [Operating manual](OPERATING_MANUAL.html), also available from the window. See [stable jogging, zoom and the reorganized layout](UPDATE_0_7_3.md), [separate camera/backbone switches](UPDATE_0_7_1.md) and [independent cable lengths and the two measurement modes](UPDATE_0_7_0.md). For analysis without automatic vision, select Manual points, capture a held pose, place points and sweep.
 
 The code has been checked with recorded images and simulated motors. The new
 Windows/WSL/USB route still needs your first hardware check. The camera stays on
@@ -28,7 +28,7 @@ WSL `/mnt/c/...` equivalent. The previous runtime remains available.
 only if the workstation token is missing. It gracefully closes an authenticated idle camera service before deployment, and refuses to overwrite an active acquisition.
 `unlock` prompts for the WSL camera key passphrase. It is not the Windows login
 password. `check` reads the configuration without opening the motors or camera.
-Expect IDs 5 and 7, rest lengths 220 mm, and the actual serial port to be present.
+Expect your configured motor IDs, effective GUI reference lengths (initially 227.353314 mm for the new model), and the actual serial port to be present.
 
 If USB is absent:
 

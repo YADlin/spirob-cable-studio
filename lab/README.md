@@ -2,9 +2,17 @@
 
 A small desktop experiment for the existing Windows-camera / WSL-motor rig.
 The workstation displays the video, advances MuJoCo, and calculates image error.
-The laptop owns the motors and recording. Version 0.8.0. This update has recorded-image, offscreen UI and simulated-driver checks; the new workflow still needs verification on the physical rig.
+The laptop owns the motors and recording. Version 0.9.0. This update has recorded-image, offscreen UI and simulated-driver checks; the new workflow still needs verification on the physical rig.
 
 **Start with the [Operating manual](docs/OPERATING_MANUAL.html)** for installation, daily use, setup jogs, individual/mean actuation, point inspection, recovery and shutdown. The same manual is available from the application.
+
+## New model, lengths and campaigns (0.9.0)
+
+Read [the 0.9.0 guide](docs/UPDATE_0_9_0.md) before running the new 21-joint model. Set measured references and bounds in **Session / data → Cable references / limits**; defaults are 227.353314 mm and 150–300 mm. Speeds reach 20 mm/s and jogs support larger bounded steps, including both cables together. **STOP — hold both** remains visible.
+
+Campaigns now require **Simulate / review → Approve → Start approved campaign**. A reproducible random generator provides selectable ranges, speeds and pose counts. Preview shows the MuJoCo backbone, actual tendon lengths and contact warnings. It never commands hardware. The approved expanded plan is reused for acquisition.
+
+The installer preserves the previous model/calibration and writes a backup. **Run `python3 setup.py deploy` after installing this update** to send the changed motion profile and jog support to WSL. Existing photographs and runs are retained. The old recorded demo below still uses the old model.
 
 ## Start with the recorded example
 
