@@ -34,10 +34,18 @@ def default_plan(rests=(220., 220.)):
     return rows
 
 
-def expand_plan(rows, start_lengths, rests, difference_limit, dwell_s=2., settle_s=2.):
+def expand_plan(rows, start_lengths, rests, difference_limit, dwell_s=2., settle_s=2., *, return_speed_mm_s=1.):
+    """Expand captures, then append a reviewed, captured return to the initial lengths.
+
+    The return is an ordinary acknowledged move in the journey, never cleanup
+    performed after STOP, connection loss, a timeout or an acquisition failure.
+    """
     if not 1 <= len(rows) <= 200:raise ValueError('Use 1..200 waypoint rows.')
     if not math.isfinite(dwell_s) or not 0 <= dwell_s <= 30:raise ValueError('Dwell must be 0..30 seconds.')
-    previous=list(map(float,start_lengths));poses=[];duration=0.
+    if not math.isfinite(settle_s) or settle_s<0:raise ValueError('Settling time must be finite and nonnegative.')
+    initial=list(start_lengths)
+    independent_targets(initial,[return_speed_mm_s]*2,rests,difference_limit)
+    previous=initial[:];poses=[];duration=0.
     for r,row in enumerate(rows):
         try:
             mode=row['mode'];x,y,s1,s2=[float(row[k]) for k in ('x','y','s1','s2')]
@@ -65,14 +73,21 @@ def expand_plan(rows, start_lengths, rests, difference_limit, dwell_s=2., settle
                 else:command=dict(action='independent',lengths_mm=point,speeds_mm_s=speeds)
                 travel=max(abs(v-u)/s for u,v,s in zip(previous,point,speeds))
                 poses.append(dict(number=len(poses)+1,row=r+1,interval=j,intervals=n,label=str(row.get('label',''))[:120],
-                    mode=mode,lengths_mm=point,speeds_mm_s=speeds,command=command,travel_s=travel,
+                    role='measurement',mode=mode,lengths_mm=point,speeds_mm_s=speeds,command=command,travel_s=travel,
                     settle_s=max(2.,settle_s),dwell_s=dwell_s))
                 duration+=travel+max(2.,settle_s)+dwell_s+1.5
                 previous=point
         except (ValueError,TypeError,KeyError) as exc:raise ValueError(f'Row {r+1}: {exc}') from exc
-    if len(poses)>500:raise ValueError('Expanded campaign exceeds 500 captures. Reduce intervals or split the plan.')
+    travel=max(abs(v-u)/return_speed_mm_s for u,v in zip(previous,initial))
+    poses.append(dict(number=len(poses)+1,row=None,interval=1,intervals=1,label='Return to campaign start',
+        role='return',mode='Both cables',lengths_mm=initial[:],speeds_mm_s=[return_speed_mm_s]*2,
+        command=dict(action='independent',lengths_mm=initial[:],speeds_mm_s=[return_speed_mm_s]*2),
+        travel_s=travel,settle_s=max(2.,settle_s),dwell_s=dwell_s))
+    duration+=travel+max(2.,settle_s)+dwell_s+1.5
+    if len(poses)>500:raise ValueError('Expanded campaign exceeds 500 captures including the final return. Reduce intervals or split the plan.')
     return dict(poses=poses,estimated_seconds=duration,reserved_seconds=duration*1.3+30,
-                initial_lengths_mm=list(start_lengths),rest_lengths_mm=list(rests),difference_limit_mm=difference_limit)
+                initial_lengths_mm=initial,rest_lengths_mm=list(rests),difference_limit_mm=difference_limit,
+                return_to_start=dict(lengths_mm=initial[:],speed_mm_s=return_speed_mm_s,on='normal completion only'))
 
 
 def held_packet(packet, target, window, max_gap=.65, tolerance=.5):
@@ -155,7 +170,8 @@ class CampaignRunner:
             self.deadline=now+2*pose['travel_s']+45+pose['settle_s']+pose['dwell_s']
             try:self.command_id=self.send(**pose['command'])
             except Exception as exc:self.abort('Could not send motion: '+str(exc));return
-            self.update('ack',f'Pose {self.index+1}/{len(self.plan["poses"])}: awaiting command acknowledgement');return
+            label='Return to campaign start' if pose.get('role')=='return' else f'Pose {self.index+1}/{len(self.plan["poses"])}'
+            self.update('ack',label+': awaiting command acknowledgement');return
         if self.state=='ack' and now-self.sent_wall>3:
             self.abort('Command acknowledgement timed out; motion is never retried.');return
         if now>self.deadline:
@@ -172,5 +188,7 @@ class CampaignRunner:
         if not self.active or self.state!='saving' or index!=self.index:return
         if error:self.abort('Capture could not be saved: '+str(error));return
         self.index+=1
-        if self.index==len(self.plan['poses']):self.update('complete','Journey complete — all poses retained')
+        if self.index==len(self.plan['poses']):
+            message='Journey complete — starting cable lengths reached; all poses retained' if self.plan.get('return_to_start') else 'Journey complete — all poses retained'
+            self.update('complete',message)
         else:self.update('next','Saved; preparing the next waypoint')

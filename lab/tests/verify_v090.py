@@ -110,7 +110,8 @@ def main():
     assert rows==random_plan(p,'Both cables',[[rests[0]-1,rests[0]+1],[rests[1]-1,rests[1]+1]],[10,20],3,713,linked=False)
     plan=expand_plan(rows,rests,rests,p,dwell_s=0)
     result=simulate(plan,cfg['model'],fit['candidate']['parameters'],model.d2,{})
-    assert len(result['summary']['poses'])==3 and len(result['frames'])>30
+    assert len(result['summary']['poses'])==4 and len(result['frames'])>30
+    assert result['summary']['poses'][-1]['role']=='return'
     assert np.isfinite(np.array([f['curve_mm'] for f in result['frames']])).all()
     event=threading.Event();event.set()
     try:simulate(plan,cfg['model'],fit['candidate']['parameters'],model.d2,{},event)

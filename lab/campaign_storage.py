@@ -51,7 +51,7 @@ class CampaignStore:
         cfg=copy.deepcopy(config);cfg['model']='model/'+model.name
         cfg['comparison_setup']=copy.deepcopy(item['setup'])
         fixed=copy.deepcopy(fit);fixed['candidate']['parameters']=copy.deepcopy(item['parameters'])
-        metadata=dict(kind='spirob_campaign',schema=1,version='0.9.0',created_utc=datetime.now(timezone.utc).isoformat(),
+        metadata=dict(kind='spirob_campaign',schema=1,version='0.9.1',created_utc=datetime.now(timezone.utc).isoformat(),
             session=item['packet']['session'],state='collecting',reason='',mode=mode,plan=plan,rows=rows,
             config=cfg,fit=fixed,d2=item['d2'],poses=[],image_bytes=0,budget_bytes=int(budget_mib*1048576),
             model_hashes={p.relative_to(root).as_posix():digest(p.read_bytes()) for p in (root/'model').rglob('*') if p.is_file()},
@@ -81,7 +81,8 @@ class CampaignStore:
             self.doc['poses'].append(dict(number=index+1,path=relative,frame_sha256=digest(jpeg),snapshot_sha256=digest(body),
                 frame_index=packet['frame_index'],t_s=packet['t_s'],command=copy.deepcopy(pose),status='Needs points',
                 reason='Recovered committed frame after interrupted index write; review physical joints',
-                observation=None,annotation_revision=0,excluded=False))
+                observation=None,annotation_revision=0,excluded=pose.get('role')=='return',
+                exclusion_reason='Return image retained for comparison; include it to fit this pose.' if pose.get('role')=='return' else ''))
             self.doc['image_bytes']+=len(jpeg);changed=True
         if self.doc['state'] in ('collecting','next','ack','moving','saving'):
             self.doc.update(state='interrupted',reason='Acquisition interrupted. Review retained poses; motion will not resume.');changed=True
@@ -129,7 +130,8 @@ class CampaignStore:
             info=dict(number=index+1,path='poses/'+number,frame_sha256=digest(jpeg),snapshot_sha256=digest(body),
                 frame_index=packet['frame_index'],t_s=packet['t_s'],command=copy.deepcopy(pose),
                 status='Captured',reason='Waiting for automatic measurement' if self.doc['mode']=='automatic' else 'Waiting for manual joints',
-                observation=None,annotation_revision=0,excluded=False)
+                observation=None,annotation_revision=0,excluded=pose.get('role')=='return',
+                exclusion_reason='Return image retained for comparison; include it to fit this pose.' if pose.get('role')=='return' else '')
             self.doc['poses'].append(info);self.doc['image_bytes']+=len(jpeg);self.save()
             return info
 

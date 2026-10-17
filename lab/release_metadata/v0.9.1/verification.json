@@ -1,0 +1,501 @@
+{
+  "version": "0.9.1",
+  "status": "PASS",
+  "tests": "40 mixed seeds; constraints; stepped sweeps; return timing, capture, STOP and faults; storage; approval; dynamic MuJoCo; offscreen GUI",
+  "hardware_tested": false,
+  "simulation": {
+    "joints": 21,
+    "neutral_tendon_mm": [
+      227.35331441047117,
+      227.3533144104711
+    ],
+    "tendon_min_mm": [
+      227.20796072832573,
+      227.1711834774017
+    ],
+    "tendon_max_mm": [
+      227.53540980579228,
+      227.49864115821103
+    ],
+    "max_contacts": 0,
+    "poses": [
+      {
+        "number": 1,
+        "command_mm": [
+          227.63264690164482,
+          227.41739030294303
+        ],
+        "control_mm": [
+          227.63264690164482,
+          227.41739030294303
+        ],
+        "role": "measurement",
+        "label": "Random 1 \u00b7 seed 912",
+        "tendon_mm": [
+          227.35332156811083,
+          227.35330725283123
+        ],
+        "max_joint_speed_rad_s": 7.027846473077823e-06,
+        "contacts": 0
+      },
+      {
+        "number": 2,
+        "command_mm": [
+          227.47853615463865,
+          227.22809266630364
+        ],
+        "control_mm": [
+          227.47853615463865,
+          227.2280926663036
+        ],
+        "role": "measurement",
+        "label": "Random 2 \u00b7 seed 912",
+        "tendon_mm": [
+          227.47223102934768,
+          227.2343816814003
+        ],
+        "max_joint_speed_rad_s": 3.239502322453615e-08,
+        "contacts": 0
+      },
+      {
+        "number": 3,
+        "command_mm": [
+          227.39140158090177,
+          227.22809266630364
+        ],
+        "control_mm": [
+          227.39140158090177,
+          227.2280926663036
+        ],
+        "role": "measurement",
+        "label": "Random 3 \u00b7 seed 912",
+        "tendon_mm": [
+          227.43286540793147,
+          227.273756202082
+        ],
+        "max_joint_speed_rad_s": 1.0381073361373647e-08,
+        "contacts": 0
+      },
+      {
+        "number": 4,
+        "command_mm": [
+          227.39140158090177,
+          228.11285904944953
+        ],
+        "control_mm": [
+          227.39140158090177,
+          228.1128590494495
+        ],
+        "role": "measurement",
+        "label": "Random 4 \u00b7 seed 912",
+        "tendon_mm": [
+          227.3533293424069,
+          227.35329947853484
+        ],
+        "max_joint_speed_rad_s": 1.7128424955424755e-06,
+        "contacts": 0
+      },
+      {
+        "number": 5,
+        "command_mm": [
+          227.30150612019634,
+          227.40512270074595
+        ],
+        "control_mm": [
+          227.3015061201963,
+          227.40512270074595
+        ],
+        "role": "measurement",
+        "label": "Random 5 \u00b7 seed 912",
+        "tendon_mm": [
+          227.30410838942728,
+          227.4025176737041
+        ],
+        "max_joint_speed_rad_s": 1.2700847458274249e-08,
+        "contacts": 0
+      },
+      {
+        "number": 6,
+        "command_mm": [
+          227.27987222775147,
+          226.91558406427097
+        ],
+        "control_mm": [
+          227.27987222775144,
+          226.91558406427094
+        ],
+        "role": "measurement",
+        "label": "Random 6 \u00b7 seed 912",
+        "tendon_mm": [
+          227.53079825593335,
+          227.17579462145105
+        ],
+        "max_joint_speed_rad_s": 6.016570782368486e-08,
+        "contacts": 0
+      },
+      {
+        "number": 7,
+        "command_mm": [
+          227.27987222775147,
+          228.34960034130955
+        ],
+        "control_mm": [
+          227.27987222775144,
+          228.34960034130955
+        ],
+        "role": "measurement",
+        "label": "Random 7 \u00b7 seed 912",
+        "tendon_mm": [
+          227.28356102239928,
+          227.4230622567528
+        ],
+        "max_joint_speed_rad_s": 5.3539287721990644e-08,
+        "contacts": 0
+      },
+      {
+        "number": 8,
+        "command_mm": [
+          228.0331769717916,
+          228.34960034130955
+        ],
+        "control_mm": [
+          228.03317697179156,
+          228.34960034130955
+        ],
+        "role": "measurement",
+        "label": "Random 8 \u00b7 seed 912",
+        "tendon_mm": [
+          227.3533040355366,
+          227.35332478540542
+        ],
+        "max_joint_speed_rad_s": 1.645591154255255e-06,
+        "contacts": 0
+      },
+      {
+        "number": 9,
+        "command_mm": [
+          227.60331441047117,
+          227.2033144104711
+        ],
+        "control_mm": [
+          227.60331441047117,
+          227.20331441047108
+        ],
+        "role": "return",
+        "label": "Return to campaign start",
+        "tendon_mm": [
+          227.49575813688685,
+          227.21084756790813
+        ],
+        "max_joint_speed_rad_s": 3.681456848584073e-08,
+        "contacts": 0
+      }
+    ],
+    "simulation_seconds": 23.979999999957453,
+    "mujoco_version": "3.3.7",
+    "timestep_s": 0.0001,
+    "initialization": "Five seconds at the initial commands; actual robot history and motor ramps can differ.",
+    "return_to_start": {
+      "lengths_mm": [
+        227.60331441047117,
+        227.2033144104711
+      ],
+      "speed_mm_s": 2.0,
+      "on": "normal completion only"
+    },
+    "meaning": "Observed ten_length range for this journey, not a hardware travel rating or guaranteed reachable range."
+  },
+  "baseline_commit": "3e7aa8647c8ece120d7e69b835b532b54e6a643d",
+  "regressions": {
+    "verify_v080.py": "PASS: recorded/synthetic shared and per-pose minima, missing/excluded coverage, capture ordering, annotation and GUI layouts",
+    "verify_v090.py": "PASS: 21-joint position model, limits, actual demo motor drivers, paired jog and STOP, preview approval and GUI",
+    "compile_and_whitespace": "PASS"
+  },
+  "default_mixed_preview": {
+    "joints": 21,
+    "neutral_tendon_mm": [
+      227.35331441047117,
+      227.3533144104711
+    ],
+    "tendon_min_mm": [
+      227.26744547072946,
+      209.0387366780459
+    ],
+    "tendon_max_mm": [
+      245.29749900066025,
+      227.43917166134773
+    ],
+    "max_contacts": 0,
+    "poses": [
+      {
+        "number": 1,
+        "command_mm": [
+          232.26863278578418,
+          235.8018697590845
+        ],
+        "control_mm": [
+          232.26863278578415,
+          235.8018697590845
+        ],
+        "role": "measurement",
+        "label": "Random 1 \u00b7 seed 20261013",
+        "tendon_mm": [
+          227.35331441047117,
+          227.3533144104711
+        ],
+        "max_joint_speed_rad_s": 3.0757131735771186e-29,
+        "contacts": 0
+      },
+      {
+        "number": 2,
+        "command_mm": [
+          236.19871458953003,
+          218.50791423141226
+        ],
+        "control_mm": [
+          236.19871458953,
+          218.50791423141226
+        ],
+        "role": "measurement",
+        "label": "Random 2 \u00b7 seed 20261013",
+        "tendon_mm": [
+          235.6862171891037,
+          218.9406583963796
+        ],
+        "max_joint_speed_rad_s": 3.808894523088205e-09,
+        "contacts": 0
+      },
+      {
+        "number": 3,
+        "command_mm": [
+          230.83805498770914,
+          218.50791423141226
+        ],
+        "control_mm": [
+          230.8380549877091,
+          218.50791423141226
+        ],
+        "role": "measurement",
+        "label": "Random 3 \u00b7 seed 20261013",
+        "tendon_mm": [
+          233.35749829987486,
+          221.30703917415215
+        ],
+        "max_joint_speed_rad_s": 3.74656906291064e-09,
+        "contacts": 0
+      },
+      {
+        "number": 4,
+        "command_mm": [
+          230.83805498770914,
+          229.59233580248463
+        ],
+        "control_mm": [
+          230.8380549877091,
+          229.59233580248463
+        ],
+        "role": "measurement",
+        "label": "Random 4 \u00b7 seed 20261013",
+        "tendon_mm": [
+          227.35331442034374,
+          227.3533144005985
+        ],
+        "max_joint_speed_rad_s": 2.79006283194113e-09,
+        "contacts": 0
+      },
+      {
+        "number": 5,
+        "command_mm": [
+          231.35375379473038,
+          223.3528750262119
+        ],
+        "control_mm": [
+          231.35375379473035,
+          223.3528750262119
+        ],
+        "role": "measurement",
+        "label": "Random 5 \u00b7 seed 20261013",
+        "tendon_mm": [
+          231.13818128952906,
+          223.55205818563485
+        ],
+        "max_joint_speed_rad_s": 3.765966272569918e-09,
+        "contacts": 0
+      },
+      {
+        "number": 6,
+        "command_mm": [
+          226.9297553788857,
+          213.47724374615203
+        ],
+        "control_mm": [
+          226.9297553788857,
+          213.477243746152
+        ],
+        "role": "measurement",
+        "label": "Random 6 \u00b7 seed 20261013",
+        "tendon_mm": [
+          233.93455778135055,
+          220.71830976456457
+        ],
+        "max_joint_speed_rad_s": 1.2202119489416816e-09,
+        "contacts": 0
+      },
+      {
+        "number": 7,
+        "command_mm": [
+          226.9297553788857,
+          214.56663203890244
+        ],
+        "control_mm": [
+          226.9297553788857,
+          214.5666320389024
+        ],
+        "role": "measurement",
+        "label": "Random 7 \u00b7 seed 20261013",
+        "tendon_mm": [
+          233.39975528815347,
+          221.2619790224339
+        ],
+        "max_joint_speed_rad_s": 1.41294356357057e-09,
+        "contacts": 0
+      },
+      {
+        "number": 8,
+        "command_mm": [
+          237.18335961150405,
+          214.56663203890244
+        ],
+        "control_mm": [
+          237.18335961150402,
+          214.5666320389024
+        ],
+        "role": "measurement",
+        "label": "Random 8 \u00b7 seed 20261013",
+        "tendon_mm": [
+          238.32430245950786,
+          216.24286444942578
+        ],
+        "max_joint_speed_rad_s": 3.937153413262958e-09,
+        "contacts": 0
+      },
+      {
+        "number": 9,
+        "command_mm": [
+          237.18335961150405,
+          235.96875825706735
+        ],
+        "control_mm": [
+          237.18335961150402,
+          235.96875825706735
+        ],
+        "role": "measurement",
+        "label": "Random 9 \u00b7 seed 20261013",
+        "tendon_mm": [
+          227.35331441062996,
+          227.35331441031232
+        ],
+        "max_joint_speed_rad_s": 5.1312697208297095e-11,
+        "contacts": 0
+      },
+      {
+        "number": 10,
+        "command_mm": [
+          231.0045404425262,
+          235.96875825706735
+        ],
+        "control_mm": [
+          231.00454044252618,
+          235.96875825706735
+        ],
+        "role": "measurement",
+        "label": "Random 10 \u00b7 seed 20261013",
+        "tendon_mm": [
+          227.35331441047114,
+          227.3533144104711
+        ],
+        "max_joint_speed_rad_s": 7.734573442273164e-17,
+        "contacts": 0
+      },
+      {
+        "number": 11,
+        "command_mm": [
+          246.55027709244717,
+          208.1563517284951
+        ],
+        "control_mm": [
+          246.55027709244717,
+          208.15635172849508
+        ],
+        "role": "measurement",
+        "label": "Random 11 \u00b7 seed 20261013",
+        "tendon_mm": [
+          245.29281871608717,
+          209.0431618915517
+        ],
+        "max_joint_speed_rad_s": 3.5260305547891427e-09,
+        "contacts": 0
+      },
+      {
+        "number": 12,
+        "command_mm": [
+          244.18944286359567,
+          239.06535391272044
+        ],
+        "control_mm": [
+          244.18944286359567,
+          239.06535391272044
+        ],
+        "role": "measurement",
+        "label": "Random 12 \u00b7 seed 20261013",
+        "tendon_mm": [
+          227.35331441047117,
+          227.3533144104711
+        ],
+        "max_joint_speed_rad_s": 3.353254268390246e-19,
+        "contacts": 0
+      },
+      {
+        "number": 13,
+        "command_mm": [
+          227.35331441047117,
+          227.3533144104711
+        ],
+        "control_mm": [
+          227.35331441047117,
+          227.3533144104711
+        ],
+        "role": "return",
+        "label": "Return to campaign start",
+        "tendon_mm": [
+          227.35331441047117,
+          227.3533144104711
+        ],
+        "max_joint_speed_rad_s": 3.0674780705545764e-29,
+        "contacts": 0
+      }
+    ],
+    "simulation_seconds": 161.74000000424567,
+    "mujoco_version": "3.3.7",
+    "timestep_s": 0.0001,
+    "initialization": "Five seconds at the initial commands; actual robot history and motor ramps can differ.",
+    "return_to_start": {
+      "lengths_mm": [
+        227.35331441047117,
+        227.3533144104711
+      ],
+      "speed_mm_s": 1.0,
+      "on": "normal completion only"
+    },
+    "meaning": "Observed ten_length range for this journey, not a hardware travel rating or guaranteed reachable range."
+  },
+  "test_environment": {
+    "python": "3.12",
+    "mujoco": "3.3.7",
+    "numpy": "2.3.5",
+    "scipy": "1.17.0",
+    "PySide6": "6.12.0",
+    "opencv-python-headless": "5.0.0.93",
+    "note": "Headless software verification. Hardware, SSH and live camera were not operated. Project dependency pins unchanged."
+  }
+}

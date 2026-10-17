@@ -88,12 +88,17 @@ def fit_campaign(store,lower=.01,upper=4.,count=31,per_pose=False,progress=None,
             measured_lateral_mm=lateral,distal_landmark=(obs.get('landmark_ids') or ['sample']*len(xy))[tip],
             cost_px2=row,errors=why,shared_cost_px2=row[best],shared_rmse_px=float(np.sqrt(row[best]))))
     missing=[p['number'] for p in doc['poses'] if p['observation'] is None and not p['excluded']]
-    result=dict(version='0.8.0',kind='campaign_fit',campaign=store.root.name,k2=grid.tolist(),shared_cost_px2=shared,
+    return_numbers=[p['number'] for p in doc['plan']['poses'] if p.get('role')=='return']
+    included_returns=[p['number'] for p in doc['poses'] if p['number'] in return_numbers and not p['excluded']]
+    expected_fit=len(doc['plan']['poses'])-len(return_numbers)+len(included_returns)
+    result=dict(version='0.9.1',kind='campaign_fit',campaign=store.root.name,k2=grid.tolist(),shared_cost_px2=shared,
         shared_minimum=dict(k2=float(grid[best]),cost_px2=shared[best],rmse_px=float(np.sqrt(shared[best])),
                             index=best,at_boundary=best in (0,len(grid)-1)),poses=records,
         expected_poses=len(doc['plan']['poses']),captured_poses=len(doc['poses']),included_poses=len(selected),missing_points=missing,
+        expected_fit_poses=expected_fit,return_poses=return_numbers,
         excluded_poses=[p['number'] for p in doc['poses'] if p['excluded']],
-        complete=len(doc['poses'])==len(doc['plan']['poses']) and not missing and not any(p['excluded'] for p in doc['poses']),
+        complete=len(doc['poses'])==len(doc['plan']['poses']) and not missing and
+                 not any(p['excluded'] and p['number'] not in return_numbers for p in doc['poses']),
         fixed_parameters=fixed,config=doc['config'],model_hashes=doc['model_hashes'],per_pose=False,
         meaning='Equal weight per pose; each J is mean squared Euclidean pixel error per included point. Lowest sampled k₂, '
                 'not a guaranteed global optimum. All alignment, scale, offsets, r and b stay fixed. '

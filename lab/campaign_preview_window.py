@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QGridLayout,QLabe
     QComboBox,QSpinBox,QDoubleSpinBox,QCheckBox,QSlider,QDialogButtonBox)
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg,NavigationToolbar2QT
-from campaign_preview import random_plan,simulate,digest
+from campaign_preview import random_plan,difference_sweep,mixed_difference_range,simulate,digest
 
 
 def number(v,lo,hi):
@@ -19,9 +19,9 @@ def number(v,lo,hi):
 class RandomCampaign(QDialog):
     def __init__(self,parent,profile):
         super().__init__(parent);self.profile=copy.deepcopy(profile);self.rows=None
-        self.setWindowTitle('Random campaign — create draft only');self.resize(650,420)
+        self.setWindowTitle('Random campaign — create draft only');self.resize(670,460)
         root=QVBoxLayout(self);grid=QGridLayout();root.addLayout(grid)
-        self.mode=QComboBox();self.mode.addItems(['Both cables','Difference'])
+        self.mode=QComboBox();self.mode.addItems(['Mixed','Both cables','Difference'])
         grid.addWidget(QLabel('Motion mode'),0,0);grid.addWidget(self.mode,0,1,1,2)
         self.bounds=[]
         for i,(lo,hi) in enumerate(profile['absolute_bounds_mm']):
@@ -36,24 +36,59 @@ class RandomCampaign(QDialog):
         self.linked=QCheckBox('Same speed for both cables at each pose');self.linked.setChecked(True);grid.addWidget(self.linked,6,0,1,3)
         self.count=QSpinBox();self.count.setRange(2,200);self.count.setValue(12)
         self.seed=QSpinBox();self.seed.setRange(0,2147483647);self.seed.setValue(20261013)
-        grid.addWidget(QLabel('Poses'),7,0);grid.addWidget(self.count,7,1);grid.addWidget(QLabel('Reproducible seed'),8,0);grid.addWidget(self.seed,8,1)
+        grid.addWidget(QLabel('Measurement poses (+ 1 return)'),7,0);grid.addWidget(self.count,7,1);grid.addWidget(QLabel('Reproducible seed'),8,0);grid.addWidget(self.seed,8,1)
+        self.note=QLabel();self.note.setWordWrap(True);root.addWidget(self.note)
         self.status=QLabel('Generates a draft only. Review the simulation, approve, then explicitly start on hardware.');self.status.setWordWrap(True);root.addWidget(self.status)
         self.mode.currentIndexChanged.connect(self.update_mode);self.update_mode()
         buttons=QDialogButtonBox(QDialogButtonBox.Ok|QDialogButtonBox.Cancel);buttons.button(QDialogButtonBox.Ok).setText('Generate draft')
         buttons.accepted.connect(self.generate);buttons.rejected.connect(self.reject);root.addWidget(buttons)
 
     def update_mode(self):
-        diff=self.mode.currentText()=='Difference'
+        diff=self.mode.currentText()=='Difference';mixed=self.mode.currentText()=='Mixed'
         for pair in self.bounds:
             for box in pair:box.setEnabled(not diff)
-        for box in (self.dlow,self.dhigh,self.mean):box.setEnabled(diff)
+        for box in (self.dlow,self.dhigh,self.mean):box.setEnabled(diff or mixed)
         self.linked.setEnabled(not diff)
+        self.count.setMinimum(4 if mixed else 2)
+        self.note.setText('Mixed includes difference, cable 1 only, cable 2 only and independent two-cable moves. '
+            'It starts with both cables inside the selected ranges; every four poses cover all four modes. '
+            'Difference targets must also fit both cable ranges.' if mixed else 'One seeded random target per measurement pose. The final return is added to the reviewed journey.')
 
     def generate(self):
         try:
             ranges=[[self.dlow.value(),self.dhigh.value()]] if self.mode.currentText()=='Difference' else [[b.value() for b in pair] for pair in self.bounds]
             self.rows=random_plan(self.profile,self.mode.currentText(),ranges,[self.slow.value(),self.shigh.value()],
-                self.count.value(),self.seed.value(),mean=self.mean.value(),linked=self.linked.isChecked())
+                self.count.value(),self.seed.value(),mean=self.mean.value(),linked=self.linked.isChecked(),
+                difference_range=[self.dlow.value(),self.dhigh.value()])
+            self.accept()
+        except Exception as exc:self.status.setText(str(exc))
+
+
+class DifferenceSweep(QDialog):
+    def __init__(self,parent,profile):
+        super().__init__(parent);self.profile=copy.deepcopy(profile);self.rows=None
+        self.setWindowTitle('Difference sweep — create draft only');self.resize(540,340)
+        root=QVBoxLayout(self);grid=QGridLayout();root.addLayout(grid)
+        cap=profile['difference_mm'];self.mean=number(sum(profile['rest_lengths_mm'])/2,.001,10000)
+        lo,hi=mixed_difference_range(profile,profile['absolute_bounds_mm'],self.mean.value())
+        self.start=number(max(lo,-40),-cap,cap);self.end=number(min(hi,40),-cap,cap)
+        self.speed=number(min(1,profile['max_speed_mm_s']),.05,profile['max_speed_mm_s'])
+        self.intervals=QSpinBox();self.intervals.setRange(1,100);self.intervals.setValue(15)
+        for i,(label,box) in enumerate([('Start extreme D [mm]',self.start),('End extreme D [mm]',self.end),
+            ('Fixed mean [mm]',self.mean),('Speed [mm/s]',self.speed),('Intervals between extremes',self.intervals)]):
+            grid.addWidget(QLabel(label),i,0);grid.addWidget(box,i,1)
+        self.status=QLabel();self.status.setWordWrap(True);root.addWidget(self.status)
+        self.intervals.valueChanged.connect(self.describe);self.describe()
+        buttons=QDialogButtonBox(QDialogButtonBox.Ok|QDialogButtonBox.Cancel);buttons.button(QDialogButtonBox.Ok).setText('Generate sweep')
+        buttons.accepted.connect(self.generate);buttons.rejected.connect(self.reject);root.addWidget(buttons)
+
+    def describe(self):
+        self.status.setText(f'{self.intervals.value()+1} equally spaced measurement poses, including both extremes, plus one return capture. '
+            'Reverse the two extremes to change direction. Simulate and approve before starting.')
+
+    def generate(self):
+        try:
+            self.rows=difference_sweep(self.profile,self.start.value(),self.end.value(),self.mean.value(),self.speed.value(),self.intervals.value())
             self.accept()
         except Exception as exc:self.status.setText(str(exc))
 
@@ -73,6 +108,7 @@ class CampaignPreview(QDialog):
         self.cancel_button=QPushButton('STOP / cancel');self.cancel_button.clicked.connect(self.stop);self.cancel_button.setStyleSheet('background:#a32121;color:white;font-weight:bold');row.addWidget(self.cancel_button)
         self.approve_button=QPushButton('Approve this simulated plan');self.approve_button.setEnabled(False);self.approve_button.clicked.connect(self.approve);row.addWidget(self.approve_button)
         note=QLabel('Review all poses with the slider or playback. Lines show commanded physical lengths and simulated tendon lengths. '
+                    'The final step returns to the starting cable lengths at the selected return speed. '
                     'Simulation starts from a conditioned model pose; motor ramps, backlash and actual loading can differ. Approval never starts motors.')
         note.setWordWrap(True);root.addWidget(note)
         def work():
@@ -129,7 +165,9 @@ class CampaignPreview(QDialog):
     def draw(self,*_):
         if not self.result:return
         frame=self.result['frames'][self.slider.value()];points=np.asarray(frame['curve_mm'])
-        self.line.set_data(points[:,0],points[:,1]);self.pose_ax.set_title(f"Pose {frame['pose']} · {frame['t_s']:.2f} s")
+        pose=self.plan['poses'][frame['pose']-1]
+        title='Return to start' if pose.get('role')=='return' else f"Pose {frame['pose']} · {pose['mode']}"
+        self.line.set_data(points[:,0],points[:,1]);self.pose_ax.set_title(f"{title}\n{frame['t_s']:.2f} s")
         self.marker.set_xdata([frame['t_s']]*2);self.canvas.draw_idle()
 
     def approve(self):

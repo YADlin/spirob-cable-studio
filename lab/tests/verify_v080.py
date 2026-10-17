@@ -16,18 +16,19 @@ from matplotlib.backend_bases import MouseEvent
 from PySide6.QtWidgets import QMessageBox
 def fail_message(parent,title,message):raise AssertionError(title+': '+message)
 QMessageBox.warning=fail_message
-cfg=json.loads(Path('config.json').read_text());fit=json.loads(Path('calibration/pilot_fit.json').read_text());engine=Comparator(cfg,fit)
+cfg=json.loads(Path('config.json').read_text());cfg['model']='model/spirob_robot.xml'
+fit=json.loads(Path('calibration/pilot_fit.json').read_text());engine=Comparator(cfg,fit)
 def row(mode='Difference',x=0,y=220,s1=1,s2=1,steps=1):return dict(mode=mode,x=x,y=y,s1=s1,s2=s2,steps=steps,label='test')
-p=expand_plan(default_plan(),[220,220],[220,220],70);assert len(p['poses'])==73 and p['reserved_seconds']<1200
+p=expand_plan(default_plan(),[220,220],[220,220],70);assert len(p['poses'])==74 and p['reserved_seconds']<1200
 m=expand_plan([row(),row(x=50,steps=15),row(x=-40,steps=15)],[220,220],[220,220],70)
-assert len(m['poses'])==31 and m['poses'][15]['lengths_mm']==[245,195] and m['poses'][-1]['lengths_mm']==[200,240]
+assert len(m['poses'])==32 and m['poses'][15]['lengths_mm']==[245,195] and m['poses'][-2]['lengths_mm']==[200,240] and m['poses'][-1]['lengths_mm']==[220,220]
 ind=expand_plan([row('Cable 1',190,0,s1=5),row('Both cables',150,210,s1=1,s2=4),row('Cable 2',0,250)],[220,220],[220,220],70)
-assert [p['lengths_mm'] for p in ind['poses']]==[[190,220],[150,210],[150,250]] and ind['poses'][1]['command']['speeds_mm_s']==[1,4]
-for rows in [[row(x=80)],[row('Both cables',150,291)],[row(s1=6)],[row(steps=2)],[row(),row(steps=1.5)],[row(),*[row(steps=100) for _ in range(6)]]]:
+assert [p['lengths_mm'] for p in ind['poses']]==[[190,220],[150,210],[150,250],[220,220]] and ind['poses'][1]['command']['speeds_mm_s']==[1,4]
+for rows in [[row(x=80)],[row('Both cables',150,291)],[row(s1=21)],[row(steps=2)],[row(),row(steps=1.5)],[row(),*[row(steps=100) for _ in range(6)]]]:
  try:expand_plan(rows,[220,220],[220,220],70)
  except ValueError:pass
  else:raise AssertionError('Invalid plan accepted')
-print('PASS mixed waypoints, speeds, interpolation, 73-pose default and limits',flush=True)
+print('PASS mixed waypoints, speeds, interpolation, 73 measurement poses plus return and limits',flush=True)
 now=[0.];commands=[];captures=[]
 remote=dict(phase='HOLDING',pending=False,axes=[dict(enabled=True,rest_count=0,state='HOLDING') for _ in (0,1)])
 def item(t,lengths=(220.,220.),target=None):
@@ -42,7 +43,9 @@ r.event(dict(type='accepted',id=r.command_id));now[0]=3;r.tick(remote,0,item(3))
 r.tick(remote,0,item(4));assert len(captures)==1
 r.captured(0);r.tick(remote,0,item(4));r.event(dict(type='accepted',id=r.command_id));now[0]=8
 r.tick(remote,0,item(8));assert len(captures)==1
-r.tick(remote,0,item(8,(225,215)));assert len(captures)==2;r.captured(1);assert r.state=='complete'
+r.tick(remote,0,item(8,(225,215)));assert len(captures)==2;r.captured(1);assert r.state=='next'
+r.tick(remote,0,item(9,(225,215)));r.event(dict(type='accepted',id=r.command_id));now[0]=12
+r.tick(remote,0,item(12));assert len(captures)==3;r.captured(2);assert r.state=='complete'
 for reason in ('stale','rejected','ack','write','stop','closing'):
  now[0]=0;commands.clear();captures.clear();runner=CampaignRunner(plan,sender,lambda *v:captures.append(v),clock=lambda:now[0]);runner.start();runner.tick(remote,0,item(0))
  if reason=='stale':runner.tick(remote,2,item(0))
@@ -71,9 +74,9 @@ out=Path(os.environ.get('SPIROB_TEST_OUTPUT','/tmp/spirob-v080-verification'));o
 with tempfile.TemporaryDirectory() as td:
  plan=expand_plan([row(),row(x=20),row(x=-20)],[220,220],[220,220],70)
  store=CampaignStore.create(td,plan,[row()],recorded(2),cfg,fit,'manual')
- for i,step in enumerate((2,3,4)):store.capture(i,recorded(step),plan['poses'][i])
- store.state('complete','test');assert len(CampaignStore(store.root).doc['poses'])==3
- assert store.doc['image_bytes']==sum(len(base64.b64decode(recorded(s)['packet']['image_b64'])) for s in (2,3,4))
+ for i,step in enumerate((2,3,4,1)):store.capture(i,recorded(step),plan['poses'][i])
+ store.state('complete','test');assert len(CampaignStore(store.root).doc['poses'])==4
+ assert store.doc['image_bytes']==sum(len(base64.b64decode(recorded(s)['packet']['image_b64'])) for s in (2,3,4,1))
  assert not any('image_b64' in p.read_text() for p in store.root.rglob('snapshot.json'))
  for i,truth in enumerate((.5,1.,2.)):
   original=store.prepared(i);assert original['result']['manual_capture_ready']
@@ -84,7 +87,7 @@ with tempfile.TemporaryDirectory() as td:
  result=fit_campaign(store,.5,2.,3);assert not result['per_pose'] and result['complete'] and result['shared_minimum']['cost_px2']>0
  result=add_per_pose(store);assert [p['minimum']['k2'] for p in result['poses']]==[.5,1.,2.]
  assert max(p['minimum']['cost_px2'] for p in result['poses'])<1e-12
- for i,p in enumerate(store.doc['poses']):
+ for i,p in enumerate(store.doc['poses'][:3]):
   obs=copy.deepcopy(p['observation']);obs['points_px']=predict(engine.model,obs,dict(engine.p,k2=1.))[0].tolist();store.set_observation(i,obs,'synthetic shared')
  result=fit_campaign(store,.5,2.,3);assert result['shared_minimum']['k2']==1 and result['shared_minimum']['cost_px2']<1e-12
  def bad_k(model,observation,parameters):
@@ -94,16 +97,16 @@ with tempfile.TemporaryDirectory() as td:
  assert any(p['errors'][0] for p in result['poses']) and result['shared_cost_px2'][0] is None
  store.doc['poses'][2]['observation']=None;store.save();result=fit_campaign(store,.5,2.,3);assert not result['complete'] and result['missing_points']==[3]
  store.exclude(1,True);assert 'analysis' not in store.doc
- result=fit_campaign(store,.5,2.,3);assert result['included_poses']==1 and result['excluded_poses']==[2]
+ result=fit_campaign(store,.5,2.,3);assert result['included_poses']==1 and result['excluded_poses']==[2,4]
  stop=threading.Event();stop.set()
  try:fit_campaign(store,.5,2.,3,cancel=stop)
  except CampaignCancelled:pass
  else:raise AssertionError('Cancel ignored')
  store.doc['budget_bytes']=store.doc['image_bytes']
- try:store.capture(3,recorded(4),plan['poses'][0])
+ try:store.capture(4,recorded(4),plan['poses'][0])
  except ValueError:pass
  else:raise AssertionError('Image budget bypassed')
- assert len(store.doc['poses'])==3
+ assert len(store.doc['poses'])==4
  # Even an invalid equilibrium at the current k cannot block joint annotation.
  with patch.object(Comparator,'compare_still',side_effect=RuntimeError('injected equilibrium failure')):
   frozen=store.prepared(0)

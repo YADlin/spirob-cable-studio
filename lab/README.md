@@ -2,9 +2,17 @@
 
 A small desktop experiment for the existing Windows-camera / WSL-motor rig.
 The workstation displays the video, advances MuJoCo, and calculates image error.
-The laptop owns the motors and recording. Version 0.9.0. This update has recorded-image, offscreen UI and simulated-driver checks; the new workflow still needs verification on the physical rig.
+The laptop owns the motors and recording. Version 0.9.1. This update has recorded-image, offscreen UI and simulated-driver checks; the new workflow still needs verification on the physical rig.
 
 **Start with the [Operating manual](docs/OPERATING_MANUAL.html)** for installation, daily use, setup jogs, individual/mean actuation, point inspection, recovery and shutdown. The same manual is available from the application.
+
+## Mixed campaigns and return to start (0.9.1)
+
+Use **Campaign → Difference sweep…** for uniformly spaced poses between two cable-difference extremes. Use **Mixed / random… → Mixed** to combine difference, cable 1 only, cable 2 only and independent two-cable moves in one seeded journey.
+
+Every new campaign ends with a simulated and reviewed return to its starting cable lengths at the selected **Return [mm/s]** speed (default 1 mm/s). Completion requires stable encoders and a retained return image. STOP, faults, disconnect and timeout abort the journey without automatic return. The return image is excluded from fitting by default and can be included during review.
+
+See [the 0.9.1 guide](docs/UPDATE_0_9_1.md). This workstation update preserves your current model, PD gains, references, limits, calibration and data. No WSL deployment is needed if 0.9.0 is already deployed.
 
 ## New model, lengths and campaigns (0.9.0)
 
@@ -12,7 +20,7 @@ Read [the 0.9.0 guide](docs/UPDATE_0_9_0.md) before running the new 21-joint mod
 
 Campaigns now require **Simulate / review → Approve → Start approved campaign**. A reproducible random generator provides selectable ranges, speeds and pose counts. Preview shows the MuJoCo backbone, actual tendon lengths and contact warnings. It never commands hardware. The approved expanded plan is reused for acquisition.
 
-The installer preserves the previous model/calibration and writes a backup. **Run `python3 setup.py deploy` after installing this update** to send the changed motion profile and jog support to WSL. Existing photographs and runs are retained. The old recorded demo below still uses the old model.
+The installer preserves the previous model/calibration and writes a backup. **Run `python3 setup.py deploy` when first upgrading the runtime to 0.9.0** to send the changed motion profile and jog support to WSL. Existing photographs and runs are retained. The old recorded demo below still uses the old model.
 
 ## Start with the recorded example
 

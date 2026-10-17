@@ -1,0 +1,21 @@
+{
+  "README.md": "f78c94048f72c7aa8cd4bc3fb8fed59cc3934bfb0a9dfa2c690839f9a05c864a",
+  "RELEASE_VERSION.txt": "179a5390966e85c2071a87c1b31de13df67460665196f6529f8c4986842f81e5",
+  "campaign.py": "d56838cd224c69afa89df67d40ae9bd7722594d5073597baff099f45ac1ae5ea",
+  "campaign_analysis.py": "80406ae6f1dfa63a7a3fabbfcb05f4b6ed3d7e7a7f95970d7664083b5b3bd82c",
+  "campaign_preview.py": "d2f4395591041610de3cf60a80c815d986ad7affc1ca3d60239591161ca21108",
+  "campaign_preview_window.py": "d31d635f701008b5f82861c224564af1ca637dc7d0ec087f4ed6510759306007",
+  "campaign_storage.py": "bd7935d4ac1e19f45fecd845c8fbe32fc77063374145a6fd1acab42443d6eb9f",
+  "campaign_window.py": "b0e4ec24c90bf378312f03d0cb5d1e7b23fead16b32f44dfdaebb206f78a10a3",
+  "docs/CONNECT_AND_RUN.md": "c32c549c5ab4d518ea5437aa0d184b618fd8d37ae5345f6bb65b033f4accf804",
+  "docs/OPERATING_MANUAL.html": "6ab1050e681157f76838b52f09d05240ddc2fb40a5ff7d90137c7357237ce484",
+  "docs/UPDATE_0_9_0.md": "ef9ae8c8e3b9ea3b86e7dbc8049a7f695d0a600227d7f4c2a9d1610d36826356",
+  "docs/UPDATE_0_9_1.md": "c644e522f55715c220f81935c778a33bb0b284c11fc19cdcaf437265740355d4",
+  "interface.py": "893b497db8b80099da81ef7a74363762d862bd3f7c0971e9c0e440bd6afc4007",
+  "pyproject.toml": "6e08d085d9a1e55904dc0d077afa51a35168b5001323b29e07ddc8a8a22c34c1",
+  "release_metadata/v0.9.1/verification.json": "860270004bd9b334319465b2f1b1940bd54470b39cb2280168be4304c7ef1c69",
+  "tests/verify_v080.py": "ce25a0adae033d4e2e0913a4a7069c7964db7923ba89e0938057319ea76271e4",
+  "tests/verify_v090.py": "868226dda1cce8f4a8c86a496796d27363f2c7643ceb3e4d79a06d12411607fe",
+  "tests/verify_v091.py": "86f624b5ff6858a295c9d5f4104225a48c87a20b5c27426b86aedbd22fce50f1",
+  "uv.lock": "e1b3b2a34e20e74c312eb5d74fd356dc94b479fa25eec3986838aaeb93387918"
+}

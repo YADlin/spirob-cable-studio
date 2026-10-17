@@ -157,7 +157,7 @@ class Preview(QThread):
         last_error=0.
         try:
             with ((Path(log_dir)/name).open('x') if log_dir else nullcontext(NullLog())) as log:
-                log.write(json.dumps(dict(type='metadata',version='0.9.0',config=self.config,
+                log.write(json.dumps(dict(type='metadata',version='0.9.1',config=self.config,
                     parameters=self.engine.p,d2=self.engine.d2,recorded_demo=self.demo,
                     source_sha256={str(p):hashlib.sha256(p.read_bytes()).hexdigest()
                         for p in [*Path('.').glob('*.py'),*Path('spirob_live').glob('*.py')]}))+'\n')
@@ -433,7 +433,7 @@ class Window(QMainWindow):
         self.last_display = self.last_plot = 0.
         self.history = []
         self.scan_busy = False
-        self.setWindowTitle('SpiRob Lab 0.9.0 — connect · move · compare')
+        self.setWindowTitle('SpiRob Lab 0.9.1 — connect · move · compare')
         self.setMinimumSize(1040,650)
         available=QApplication.primaryScreen().availableGeometry()
         self.resize(min(1440,max(1040,available.width()-48)),min(900,max(650,available.height()-64)))
@@ -1254,7 +1254,7 @@ class Window(QMainWindow):
     def export_sweep(self,path):
         if not self.sweep_result:raise ValueError('Run a sweep first.')
         scan=copy.deepcopy(self.sweep_result);scan['selected_k2']=self.selected_k
-        scan['version']='0.9.0';scan['applied_k2']=self.fit['candidate']['parameters']['k2']
+        scan['version']='0.9.1';scan['applied_k2']=self.fit['candidate']['parameters']['k2']
         scan['applied_parameters']=copy.deepcopy(self.fit['candidate']['parameters'])
         path=Path(path).with_suffix('.png')
         figure=Figure(figsize=(8,5),layout='constrained');ax=figure.subplots()

@@ -1,5 +1,7 @@
 # SpiRob Lab 0.9.0 — new model and reviewed campaigns
 
+Historical release notes: [0.9.1](UPDATE_0_9_1.md) adds mixed generation, a difference-sweep draft, and a reviewed return to starting lengths at normal campaign completion.
+
 This update uses the supplied new geometry and meshes. It activates a separate model at `model/new_20261013/spirob_robot.xml` and keeps the old model and calibration files. It does not move motors during installation or simulation preview.
 
 ## Model and physical references

@@ -1,6 +1,6 @@
 # Connect and run from the Ubuntu workstation
 
-For version 0.9.0 read [new model / references / reviewed campaigns](UPDATE_0_9_0.md), then use the complete [Operating manual](OPERATING_MANUAL.html), also available from the window. See [stable jogging, zoom and the reorganized layout](UPDATE_0_7_3.md), [separate camera/backbone switches](UPDATE_0_7_1.md) and [independent cable lengths and the two measurement modes](UPDATE_0_7_0.md). For analysis without automatic vision, select Manual points, capture a held pose, place points and sweep.
+For version 0.9.1 read [mixed campaigns, stepped sweeps and return to start](UPDATE_0_9_1.md). For the model and connection setup, read [new model / references / reviewed campaigns](UPDATE_0_9_0.md), then use the complete [Operating manual](OPERATING_MANUAL.html), also available from the window. See [stable jogging, zoom and the reorganized layout](UPDATE_0_7_3.md), [separate camera/backbone switches](UPDATE_0_7_1.md) and [independent cable lengths and the two measurement modes](UPDATE_0_7_0.md). For analysis without automatic vision, select Manual points, capture a held pose, place points and sweep.
 
 The code has been checked with recorded images and simulated motors. The new
 Windows/WSL/USB route still needs your first hardware check. The camera stays on

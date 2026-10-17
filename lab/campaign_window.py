@@ -37,13 +37,18 @@ class CampaignWindow(QDialog):
         row=QHBoxLayout();pl.addLayout(row)
         self.mode=QComboBox();self.mode.addItems(['Automatic shared k₂ after journey','Collect now; place joints afterward']);row.addWidget(self.mode,1)
         self.dwell=self.number(2,0,30,1);row.addWidget(QLabel('Extra dwell [s]'));row.addWidget(self.dwell)
+        cap=self.host.motion_profile['max_speed_mm_s']
+        self.return_speed=self.number(min(1,cap),.05,cap,3);row.addWidget(QLabel('Return [mm/s]'));row.addWidget(self.return_speed)
         self.preflight_button=QPushButton('Preflight');self.preflight_button.clicked.connect(self.preflight);row.addWidget(self.preflight_button)
-        note=QLabel('Difference: x = full D, y = mean. Both: x = L₁, y = L₂. Cable 1/2 changes only its own length. Speeds in mm/s.\nIntervals = 1: waypoint only; >1: capture each interpolated step from the preceding row. First row is always one capture.')
+        note=QLabel('Difference: x = full D, y = mean. Both: x = L₁, y = L₂. Cable 1/2 changes only its own length. Speeds in mm/s.\nIntervals >1: capture each interpolated step from the preceding row. First row is one capture. A final return to starting lengths is always added; STOP/fault cancels it.')
         note.setWordWrap(True);pl.addWidget(note)
         self.table=QTableWidget(0,7);self.table.setHorizontalHeaderLabels(['Motion','x [mm]','y [mm]','Speed 1','Speed 2','Intervals','Label'])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch);pl.addWidget(self.table,1)
         buttons=QHBoxLayout();pl.addLayout(buttons)
-        for title,handler in [('Default 73 poses',self.defaults),('Random generator…',self.generate_random),('Simulate / review',self.simulate_plan),('Add row',self.add_row),('Remove row',self.remove_row),('Load plan…',self.load_plan),('Save plan…',self.save_plan)]:
+        for title,handler in [('Difference sweep…',self.generate_sweep),('Mixed / random…',self.generate_random),('Broad 73 poses',self.defaults),('Simulate / review',self.simulate_plan)]:
+            b=QPushButton(title);b.clicked.connect(handler);buttons.addWidget(b)
+        buttons=QHBoxLayout();pl.addLayout(buttons)
+        for title,handler in [('Add row',self.add_row),('Remove row',self.remove_row),('Load plan…',self.load_plan),('Save plan…',self.save_plan)]:
             b=QPushButton(title);b.clicked.connect(handler);buttons.addWidget(b)
         self.preflight_text=QLabel('Preflight expands every row and checks the session motion envelope, storage budget and remaining time.');self.preflight_text.setWordWrap(True);self.preflight_text.setFixedHeight(65);pl.addWidget(self.preflight_text)
         poses_page=QWidget();pv=QVBoxLayout(poses_page);self.tabs.addTab(poses_page,'Captured poses / batch review')
@@ -56,7 +61,7 @@ class CampaignWindow(QDialog):
         self.poses.setEditTriggers(QTableWidget.NoEditTriggers);self.poses.setIconSize(__import__('PySide6.QtCore',fromlist=['QSize']).QSize(100,56))
         self.poses.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch);pv.addWidget(self.poses,1)
         self.poses.cellDoubleClicked.connect(lambda *_:self.edit_selected())
-        review_note=QLabel('Frames and drafts are retained in this run. Save & next opens the next unfinished pose. Explicitly exclude obscured points.\nPrevious-image optical-flow suggestions are drafts for your review; they never use MuJoCo as the physical measurement.')
+        review_note=QLabel('Frames and drafts are retained in this run. Save & next opens the next unfinished pose. The final return image is excluded from fitting by default; include it here if useful.\nPrevious-image optical-flow suggestions are drafts for your review; they never use MuJoCo as the physical measurement.')
         review_note.setWordWrap(True);pv.addWidget(review_note)
         result_page=QWidget();rv=QVBoxLayout(result_page);self.tabs.addTab(result_page,'Shared k₂ → per-pose k₂')
         knobs=QHBoxLayout();rv.addLayout(knobs)
@@ -71,6 +76,7 @@ class CampaignWindow(QDialog):
         self.figure=Figure(figsize=(10,4),layout='constrained');self.canvas=FigureCanvasQTAgg(self.figure)
         rv.addWidget(NavigationToolbar2QT(self.canvas,self));rv.addWidget(self.canvas,1)
         self.table.itemChanged.connect(self.invalidate_review);self.dwell.valueChanged.connect(self.invalidate_review)
+        self.return_speed.valueChanged.connect(self.invalidate_review)
         self.defaults();self.timer=QTimer(self);self.timer.timeout.connect(self.poll);self.timer.start(100)
 
     @staticmethod
@@ -111,12 +117,13 @@ class CampaignWindow(QDialog):
         if path:
             try:
                 data=json.loads(Path(path).read_text());self.set_rows(data['rows']);self.dwell.setValue(data.get('dwell_s',2))
+                self.return_speed.setValue(data.get('return_speed_mm_s',min(1,self.host.motion_profile['max_speed_mm_s'])))
             except Exception as exc:self.set_status('Plan could not be loaded: '+str(exc))
 
     def save_plan(self):
         path,_=QFileDialog.getSaveFileName(self,'Save campaign plan','campaign_plan.json','JSON (*.json)')
         if path:
-            try:atomic(path,encoded(dict(rows=self.rows(),dwell_s=self.dwell.value())))
+            try:atomic(path,encoded(dict(rows=self.rows(),dwell_s=self.dwell.value(),return_speed_mm_s=self.return_speed.value())))
             except Exception as exc:self.set_status('Plan could not be saved: '+str(exc))
 
     def build_plan(self,require_live=False):
@@ -128,10 +135,11 @@ class CampaignWindow(QDialog):
         if require_live and (self.host.demo or not self.host.session or self.host.closing or self.host.connecting or
             self.host.remote.get('phase')!='HOLDING' or self.host.remote.get('pending') or not item or self.host.pending_comparison_change):
             raise ValueError('Connect, enable/declare rest and wait for fresh HOLDING feedback before starting.')
-        plan=expand_plan(self.rows(),initial,rests,self.host.motion_profile,self.dwell.value(),self.host.config['live']['settle_window_s'])
+        plan=expand_plan(self.rows(),initial,rests,self.host.motion_profile,self.dwell.value(),self.host.config['live']['settle_window_s'],
+            return_speed_mm_s=self.return_speed.value())
         remaining=self.host.remote.get('session_limit_s',self.host.duration.currentData())-self.host.remote.get('elapsed_s',0)
         estimate=(len(item['packet']['image_b64'])*3/4 if item else 300000)*len(plan['poses'])
-        text=f'{len(plan["poses"])} captures · estimate {plan["estimated_seconds"]/60:.1f} min; reserve {plan["reserved_seconds"]/60:.1f} min · remaining {remaining/60:.1f} min. Images ≈ {estimate/1048576:.1f} MiB at current JPEG size; hard cap 256 MiB. '
+        text=f'{len(plan["poses"])-1} measurement poses + 1 return to ({initial[0]:.3f}, {initial[1]:.3f}) mm · estimate {plan["estimated_seconds"]/60:.1f} min; reserve {plan["reserved_seconds"]/60:.1f} min · remaining {remaining/60:.1f} min. Images ≈ {estimate/1048576:.1f} MiB; cap 256 MiB. '
         text+=('TIME TOO SHORT: select a longer session before connecting.' if remaining<plan['reserved_seconds'] else 'Time budget OK.')
         self.preflight_text.setText(text)
         if require_live and remaining<plan['reserved_seconds']:raise ValueError(text)
@@ -146,7 +154,14 @@ class CampaignWindow(QDialog):
     def review_context(self):
         from campaign_preview import review_context
         return review_context(self.rows(),self.dwell.value(),self.host.motion_profile,self.host.config['model'],
-            self.host.fit['candidate']['parameters'],self.host.current_d2,self.host.comparison_setup)
+            self.host.fit['candidate']['parameters'],self.host.current_d2,self.host.comparison_setup,
+            self.return_speed.value(),self.host.config['live']['settle_window_s'])
+
+    def generate_sweep(self):
+        from campaign_preview_window import DifferenceSweep
+        dialog=DifferenceSweep(self,self.host.motion_profile)
+        if dialog.exec():
+            self.set_rows(dialog.rows);self.set_status('Difference sweep ready. Simulate and review the sweep and final return, then approve.')
 
     def generate_random(self):
         from campaign_preview_window import RandomCampaign
@@ -194,6 +209,7 @@ class CampaignWindow(QDialog):
             live_plan,item=self.build_plan(True)
             from campaign_preview import require_review
             plan=require_review(self.approved_review,self.review_context(),live_plan['initial_lengths_mm'])
+            plan['start_feedback_lengths_mm']=live_plan['initial_lengths_mm']
             plan['simulation_review']={k:copy.deepcopy(self.approved_review[k]) for k in ('fingerprint','context','summary')}
             if self.host.remote.get('session',item['packet']['session'])!=item['packet']['session']:
                 raise ValueError('Camera and motor session identities do not match.')
@@ -217,7 +233,7 @@ class CampaignWindow(QDialog):
         if state=='complete':
             self.tabs.setCurrentIndex(1);self.refresh_poses()
             if self.store.doc['mode']=='automatic':QTimer.singleShot(0,lambda:self.analyse(True))
-            else:self.set_status('Journey complete. All images retained; ready for one sitting of joint placement. Then fit shared k₂, followed by each pose.')
+            else:self.set_status('Journey complete; starting cable lengths reached. Images retained for joint placement, shared k₂, then per-pose k₂. The return image is excluded by default.')
 
     def capture(self,index,item,pose):
         store=self.store
@@ -359,7 +375,8 @@ class CampaignWindow(QDialog):
         b.axhline(best['k2'],color='#087e8b',label='Shared k₂');b.set(xlabel=self.xaxis.currentText(),ylabel='k₂ [N m/rad]',title='Red × = grid boundary');b.legend()
         n=result['included_poses'];warning=' COMPLETE' if result['complete'] else ' INCOMPLETE / SUBSET'
         boundary=' · minimum at grid boundary: widen range' if best['at_boundary'] else ''
-        self.result_text.setText(f'{warning}: {n}/{result["expected_poses"]} poses · shared k₂ = {best["k2"]:.6g}; J = {best["cost_px2"]:.3f} px²; RMSE = {best["rmse_px"]:.3f} px{boundary}.\n'
+        expected=result.get('expected_fit_poses',result['expected_poses'])
+        self.result_text.setText(f'{warning}: {n}/{expected} fit poses; {result["captured_poses"]}/{result["expected_poses"]} images · shared k₂ = {best["k2"]:.6g}; J = {best["cost_px2"]:.3f} px²; RMSE = {best["rmse_px"]:.3f} px{boundary}.\n'
             f'Grid {grid[0]:.4g}–{grid[-1]:.4g} ({len(grid)} samples). Inspect forward/reverse repeats; lower per-pose error alone does not prove variable stiffness. CSV/JSON contain each pose and all samples.')
         from appearance import theme_figure
         theme_figure(self.figure,self.host.theme);self.canvas.draw_idle()
