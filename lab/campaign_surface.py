@@ -34,7 +34,7 @@ def set_cable_kp(model, kp):
 
 
 def fit_surface(store, k_lower=.03, k_upper=3., k_count=21, r_lower=.90, r_upper=1.10, r_count=21,
-                cable_kp=None, progress=None, cancel=None):
+                cable_kp=None, pixels_per_m=None, progress=None, cancel=None):
     if (not np.isfinite([k_lower, k_upper, k_count, r_lower, r_upper, r_count]).all()
             or not .001 <= k_lower < k_upper <= 10 or not .5 <= r_lower < r_upper <= 1.5
             or int(k_count) != k_count or int(r_count) != r_count
@@ -51,6 +51,11 @@ def fit_surface(store, k_lower=.03, k_upper=3., k_count=21, r_lower=.90, r_upper
     if cable_kp is not None:
         set_cable_kp(model, cable_kp)
     fixed.pop('stiffness_exponent', None)
+    campaign_pixels_per_m = float(fixed['pixels_per_m'])
+    if pixels_per_m is not None:
+        if not np.isfinite(pixels_per_m) or not 500 <= pixels_per_m <= 50000:
+            raise ValueError('Image scale must be between 500 and 50,000 px/m.')
+        fixed['pixels_per_m'] = float(pixels_per_m)
     ks = np.geomspace(k_lower, k_upper, int(k_count))
     rs = np.linspace(r_lower, r_upper, int(r_count))
     # Always include the campaign's own (k₂, r) so the old baseline is a grid point.
@@ -124,6 +129,8 @@ def fit_surface(store, k_lower=.03, k_upper=3., k_count=21, r_lower=.90, r_upper
         baseline_exponential=baseline, valley=valley, poses=poses,
         cable_kp_N_per_m=float(model.kp[0]), model_cable_kp_N_per_m=model_kp,
         cable_kp_overridden=cable_kp is not None,
+        pixels_per_m=float(fixed['pixels_per_m']), campaign_pixels_per_m=campaign_pixels_per_m,
+        pixels_per_m_overridden=pixels_per_m is not None,
         included_poses=len(selected), excluded_poses=[p['number'] for p in doc['poses'] if p['excluded']],
         missing_points=[p['number'] for p in doc['poses'] if p['observation'] is None and not p['excluded']],
         fixed_parameters=fixed, model_hashes=doc['model_hashes'],
@@ -154,3 +161,64 @@ def save_surface(store, result):
             for b, k in enumerate(result['k2']):
                 c = result['shared_cost_px2'][a][b]
                 w.writerow([k, r, c, None if c is None else float(np.sqrt(c)), result['cable_kp_N_per_m']])
+
+
+def render_overlays(store, result):
+    """Draw physical joints, the surface minimum and the campaign (k₂, r) on each pose photo.
+
+    Uses the same model, kp, image scale and alignment as the sweep. Writes
+    surface_overlay_pose_NNN.png into the campaign folder and returns the paths.
+    """
+    from matplotlib.figure import Figure
+    from PIL import Image
+    model = SpiRobModel(store.config()['model'])
+    if result.get('cable_kp_overridden'):
+        set_cable_kp(model, result['cable_kp_N_per_m'])
+    fixed = dict(result['fixed_parameters'], stiffness_exponent=1.)
+    m = result['minimum']
+    cases = [('Surface minimum: k₂ = %.4g, r = %.3f' % (m['k2'], m['ratio']),
+              dict(k2=m['k2'], stiffness_ratio=m['ratio']), '#1e88e5', '-')]
+    base = result.get('baseline_exponential')
+    if base:
+        cases.append(('Campaign: k₂ = %.4g, r = %.3f' % (base['k2'], base['ratio']),
+                      dict(k2=base['k2'], stiffness_ratio=base['ratio']), '#e53935', '--'))
+    by_number = {p['number']: p for p in store.doc['poses']}
+    paths = []
+    for row in result['poses']:
+        pose = by_number.get(row['number'])
+        if pose is None or pose['observation'] is None:
+            continue
+        obs = pose['observation']
+        phys = np.asarray(obs['points_px'], float)
+        frame = store.path(pose['path']) / 'frame.jpg'
+        fig = Figure(figsize=(12, 7), layout='constrained')
+        ax = fig.subplots()
+        if frame.is_file():
+            ax.imshow(Image.open(frame).convert('RGB'))
+        else:
+            ax.invert_yaxis()
+        ax.plot(*phys.T, 'o', ms=6, mfc='none', mec='#00e676', mew=1.8, label='Physical joints (your points)')
+        for label, par, colour, style in cases:
+            try:
+                points, curve, _, _ = predict(model, obs, dict(fixed, **par))
+            except (ValueError, RuntimeError) as exc:
+                ax.plot([], [], style, color=colour, label=label + ' — failed: ' + str(exc)[:40])
+                continue
+            err = np.sqrt(np.mean(np.sum((points - phys) ** 2, axis=1)))
+            ax.plot(*np.asarray(curve).T, style, color=colour, lw=2, label=f'{label}  (RMSE {err:.1f} px)')
+            ax.plot(*points.T, 's', ms=3, color=colour)
+            for a, b in zip(phys, points):
+                ax.plot([a[0], b[0]], [a[1], b[1]], color=colour, lw=.5, alpha=.7)
+        pad = 80
+        lo, hi = phys.min(axis=0) - pad, phys.max(axis=0) + pad
+        ax.set_xlim(lo[0], hi[0]); ax.set_ylim(hi[1], lo[1])
+        D = obs['displacement_mm']
+        ax.set_title(f"Pose {pose['number']} · cable Δ = ({D[0]:+.2f}, {D[1]:+.2f}) mm · "
+                     f"kp {result['cable_kp_N_per_m']:.6g} N/m · scale {result['pixels_per_m']:.6g} px/m")
+        ax.legend(loc='lower left', fontsize=8)
+        path = store.root / f"surface_overlay_pose_{pose['number']:03d}.png"
+        fig.savefig(path, dpi=110)
+        paths.append(path)
+    if not paths:
+        raise ValueError('No included pose has points to overlay.')
+    return paths

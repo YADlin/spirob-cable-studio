@@ -15,7 +15,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg,NavigationToolba
 from campaign import MODES,default_plan,expand_plan,CampaignRunner
 from campaign_storage import CampaignStore,atomic,encoded
 from campaign_analysis import auto_measure,fit_campaign,add_per_pose,CampaignCancelled
-from campaign_surface import fit_surface,surface_is_current,FORMULA as SURFACE_FORMULA
+from campaign_surface import fit_surface,surface_is_current,render_overlays,FORMULA as SURFACE_FORMULA
 
 
 class CampaignWindow(QDialog):
@@ -87,9 +87,12 @@ class CampaignWindow(QDialog):
         sk2=QHBoxLayout();sv.addLayout(sk2)
         self.s_kp_on=QCheckBox('Override cable kp [N/m]');self.s_kp=self.number(250000,10,1e7,0);self.s_kp.setEnabled(False)
         self.s_kp_on.toggled.connect(self.s_kp.setEnabled);sk2.addWidget(self.s_kp_on);sk2.addWidget(self.s_kp)
+        self.s_ppm_on=QCheckBox('Override image scale [px/m]');self.s_ppm=self.number(4250,500,50000,1);self.s_ppm.setEnabled(False)
+        self.s_ppm_on.toggled.connect(self.s_ppm.setEnabled);sk2.addWidget(self.s_ppm_on);sk2.addWidget(self.s_ppm)
         sk2.addWidget(QLabel('Show'));self.s_metric=QComboBox();self.s_metric.addItems(['RMSE [px]','J [px²]']);self.s_metric.currentIndexChanged.connect(self.draw_surface);sk2.addWidget(self.s_metric)
         self.surface_button=QPushButton('3. Sweep k₂ × ratio');self.surface_button.clicked.connect(self.sweep_surface);sk2.addWidget(self.surface_button)
-        self.surface_cancel=QPushButton('Cancel');self.surface_cancel.clicked.connect(self.cancel.set);sk2.addWidget(self.surface_cancel);sk2.addStretch(1)
+        self.surface_cancel=QPushButton('Cancel');self.surface_cancel.clicked.connect(self.cancel.set);sk2.addWidget(self.surface_cancel)
+        self.overlay_button=QPushButton('Overlay on pose photos');self.overlay_button.clicked.connect(self.overlay_surface);sk2.addWidget(self.overlay_button);sk2.addStretch(1)
         self.surface_text=QLabel(SURFACE_FORMULA+'. Every included pose is scored at every (k₂, r); a grid point counts only if all poses converge without contact. '
             'Default kp is the model value. Saved as fit_surface.json/.csv/.png; fit_results.json is not changed.')
         self.surface_text.setWordWrap(True);self.surface_text.setFixedHeight(70);sv.addWidget(self.surface_text)
@@ -380,10 +383,20 @@ class CampaignWindow(QDialog):
         store=self.store
         kwargs=dict(k_lower=self.s_klow.value(),k_upper=self.s_khigh.value(),k_count=self.s_kcount.value(),
                     r_lower=self.s_rlow.value(),r_upper=self.s_rhigh.value(),r_count=self.s_rcount.value(),
-                    cable_kp=self.s_kp.value() if self.s_kp_on.isChecked() else None)
+                    cable_kp=self.s_kp.value() if self.s_kp_on.isChecked() else None,
+                    pixels_per_m=self.s_ppm.value() if self.s_ppm_on.isChecked() else None)
         def progress(n,total,stage):self.messages.put(('progress',f'{stage}: {n}/{total} pose evaluations'))
         def work():
             try:self.messages.put(('surface',fit_surface(store,progress=progress,cancel=self.cancel,**kwargs)))
+            except Exception as exc:self.messages.put(('error',str(exc)))
+        self.worker=threading.Thread(target=work,daemon=True);self.worker.start()
+
+    def overlay_surface(self):
+        if self.quiescing or not self.store or not self.surface or self.active or self.busy:return
+        self.busy=True;self.set_status('Drawing the surface minimum on each pose photo…')
+        store,result=self.store,self.surface
+        def work():
+            try:self.messages.put(('overlay',render_overlays(store,result)))
             except Exception as exc:self.messages.put(('error',str(exc)))
         self.worker=threading.Thread(target=work,daemon=True);self.worker.start()
 
@@ -417,12 +430,17 @@ class CampaignWindow(QDialog):
         v=res['valley']
         if v:
             vr=[p['ratio'] for p in v];vy=[p['rmse_px'] if rmse else p['cost_px2'] for p in v]
-            b.plot(vr,vy,'o-',ms=3,color='#087e8b',label='Best k₂ at each r');b.set(xlabel='Adjacent stiffness ratio r',ylabel=label,title='Valley: error vs ratio')
-            b2=b.twinx();b2.plot(vr,[p['k2'] for p in v],'--',color='#9e9e9e',lw=1);b2.set_ylabel('k₂ at valley [N m/rad]');b2.set_yscale('log')
-            b.axvline(m['ratio'],color='#e36b36',lw=1)
-            if base:b.axvline(base['ratio'],color='#d32f2f',lw=1,ls=':')
-            b.legend(loc='upper center',fontsize=8)
+            h=b.plot(vr,vy,'o-',ms=3,color='#087e8b',label=f'Lowest {"RMSE" if rmse else "J"} at each r (left axis)')
+            b.set(xlabel='Adjacent stiffness ratio r',ylabel=label,title='Valley: best k₂ for each ratio')
+            b2=b.twinx();h+=b2.plot(vr,[p['k2'] for p in v],'--',color='#9e9e9e',lw=1,label='k₂ giving that minimum (right axis)')
+            b2.set_ylabel('k₂ at valley [N m/rad]');b2.set_yscale('log')
+            if min(p['k2'] for p in v)<=ks[0]*1.0001:
+                b2.axhline(ks[0],color='#9e9e9e',lw=.6,ls=':');h.append(b2.plot([],[],':',color='#9e9e9e',lw=.6,label='k₂ grid floor: valley clipped where it lies on this line')[0])
+            h.append(b.axvline(m['ratio'],color='#e36b36',lw=1.2,label=f"Overall minimum r = {m['ratio']:.3f}"))
+            if base:h.append(b.axvline(base['ratio'],color='#d32f2f',lw=1,ls=':',label=f"Campaign model r = {base['ratio']:.3f}"))
+            b.legend(handles=h,loc='upper center',fontsize=7,framealpha=.85)
         kp=f"cable kp {res['cable_kp_N_per_m']:.6g} N/m"+(' (overridden)' if res['cable_kp_overridden'] else ' (model)')
+        if 'pixels_per_m' in res:kp+=f" · scale {res['pixels_per_m']:.6g} px/m"+(' (overridden)' if res.get('pixels_per_m_overridden') else ' (campaign)')
         stale='' if (self.store and surface_is_current(self.store,res)) else ' · STALE: points changed since this sweep, run again'
         edge=f" · minimum on {', '.join(m['boundary_axes'])} grid edge: widen range" if m['at_boundary'] else ''
         old=f" · campaign (k₂ {base['k2']:.4g}, r {base['ratio']:.4g}): RMSE {base['rmse_px']:.3f} px" if base else ''
@@ -474,6 +492,9 @@ class CampaignWindow(QDialog):
             elif kind=='progress':self.set_status(value)
             elif kind=='fit':self.busy=False;self.refresh_poses();self.draw();self.set_status('Shared baseline finished and saved. Review it, then choose 2. Fit each pose.')
             elif kind=='surface':self.busy=False;self.surface=value;self.draw_surface();self.set_status('k₂ × ratio surface finished and saved to fit_surface.json/.csv/.png.')
+            elif kind=='overlay':
+                self.busy=False;self.set_status(f'Saved {len(value)} overlays ({value[0].name} …) in the campaign folder.')
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(value[0])))
             elif kind=='error':self.busy=False;self.refresh_poses();self.set_status('Analysis: '+value)
             elif kind=='prepared':
                 self.busy=False
@@ -490,6 +511,7 @@ class CampaignWindow(QDialog):
         for b in (self.fit_button,self.surface_button,self.edit_button,self.next_button,self.exclude_button):b.setEnabled(bool(self.store) and not active and not self.busy and not editing)
         self.individual_button.setEnabled(bool(self.store and self.store.doc.get('analysis')) and not active and not self.busy and not editing)
         self.cancel_button.setEnabled(self.busy);self.surface_cancel.setEnabled(self.busy)
+        self.overlay_button.setEnabled(bool(self.store and self.surface) and not active and not self.busy and not editing)
 
     def closeEvent(self,event):
         self.abort('Campaign window closed; held and retained completed poses.')

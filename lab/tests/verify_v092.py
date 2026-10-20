@@ -73,6 +73,15 @@ with tempfile.TemporaryDirectory() as td:
     while d.busy and time.monotonic()<end:app.processEvents();time.sleep(.02)
     assert not d.busy and 'Minimum: k₂ = 1' in d.surface_text.text() and (store.root/'fit_surface.png').exists(),d.surface_text.text()
     d.s_metric.setCurrentIndex(1);app.processEvents()
+    from unittest.mock import patch
+    with patch('campaign_window.QDesktopServices.openUrl'):
+        d.overlay_button.click()
+        end=time.monotonic()+120
+        while d.busy and time.monotonic()<end:app.processEvents();time.sleep(.02)
+    overlays=sorted(store.root.glob('surface_overlay_pose_*.png'));assert len(overlays)==3,d.status.text()
+    scaled=fit_surface(store,.5,2.,3,.9,1.,3,pixels_per_m=4000.)
+    assert scaled['pixels_per_m_overridden'] and scaled['pixels_per_m']==4000. and scaled['campaign_pixels_per_m']!=4000.
+    d.surface=scaled;d.draw_surface();assert 'scale 4000 px/m (overridden)' in d.surface_text.text()
     out=Path(os.environ.get('SPIROB_TEST_OUTPUT','/tmp/spirob-v092-verification'));out.mkdir(parents=True,exist_ok=True)
     for size in [(1040,650),(1366,768)]:
         d.resize(size[0]-30,size[1]-40);d.tabs.setCurrentIndex(3);app.processEvents();d.s_canvas.draw()

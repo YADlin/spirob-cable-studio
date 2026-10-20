@@ -11,6 +11,10 @@
   recorded in the result. k₂ is reported as relative to kp and gravity.
 - Saves fit_surface.json/.csv/.png in the campaign folder; fit_results.json untouched.
   Stale-result warning if points change afterwards. Verification: lab/tests/verify_v092.py.
+- Valley plot legend (minimum line, campaign ratio, k₂ axis, k₂ grid-floor marker).
+- Optional image-scale (px/m) override, recorded in the result.
+- **Overlay on pose photos**: draws physical joints, the surface minimum and the campaign
+  (k₂, r) on each pose's frame.jpg → surface_overlay_pose_NNN.png.
 
 ## 3.1.0 — paired length controls
 
