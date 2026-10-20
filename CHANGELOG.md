@@ -1,5 +1,17 @@
 # Changes
 
+## SpiRob Lab 0.9.1 + campaign stiffness-ratio surface
+
+- New campaign tab **k₂ × stiffness ratio**: sweeps k₂ (log grid) and the adjacent
+  stiffness ratio r in kᵢ = k₂·r^(i−2) over every included pose, using the same
+  frozen alignment, offsets and equal-weight J as the shared k₂ fit.
+- A grid point counts only if every pose converges without contact. Shows a J/RMSE
+  map with the minimum and the campaign's own (k₂, r), plus best-k₂-per-ratio valley.
+- Optional cable kp override (position-servo gain = the model's only cable compliance),
+  recorded in the result. k₂ is reported as relative to kp and gravity.
+- Saves fit_surface.json/.csv/.png in the campaign folder; fit_results.json untouched.
+  Stale-result warning if points change afterwards. Verification: lab/tests/verify_v092.py.
+
 ## 3.1.0 — paired length controls
 
 - Replace separate A/D apply actions with one target pair, mean/full-difference

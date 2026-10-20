@@ -15,6 +15,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg,NavigationToolba
 from campaign import MODES,default_plan,expand_plan,CampaignRunner
 from campaign_storage import CampaignStore,atomic,encoded
 from campaign_analysis import auto_measure,fit_campaign,add_per_pose,CampaignCancelled
+from campaign_surface import fit_surface,surface_is_current,FORMULA as SURFACE_FORMULA
 
 
 class CampaignWindow(QDialog):
@@ -75,6 +76,25 @@ class CampaignWindow(QDialog):
         self.xaxis=QComboBox();self.xaxis.addItems(['Measured cable difference [mm]','Measured distal lateral offset [mm]','Pose order']);self.xaxis.currentIndexChanged.connect(self.draw);plotbar.addWidget(self.xaxis)
         self.figure=Figure(figsize=(10,4),layout='constrained');self.canvas=FigureCanvasQTAgg(self.figure)
         rv.addWidget(NavigationToolbar2QT(self.canvas,self));rv.addWidget(self.canvas,1)
+        surface_page=QWidget();sv=QVBoxLayout(surface_page);self.tabs.addTab(surface_page,'k₂ × stiffness ratio')
+        self.surface=None
+        sk=QHBoxLayout();sv.addLayout(sk)
+        self.s_klow=self.number(.03,.001,10,4);self.s_khigh=self.number(3,.001,10,4);self.s_kcount=QSpinBox();self.s_kcount.setRange(3,61);self.s_kcount.setValue(21)
+        for title,widget in [('k₂ min',self.s_klow),('max',self.s_khigh),('samples',self.s_kcount)]:sk.addWidget(QLabel(title));sk.addWidget(widget)
+        sk.addSpacing(16)
+        self.s_rlow=self.number(.90,.5,1.5,3);self.s_rhigh=self.number(1.10,.5,1.5,3);self.s_rcount=QSpinBox();self.s_rcount.setRange(3,61);self.s_rcount.setValue(21)
+        for title,widget in [('ratio r min',self.s_rlow),('max',self.s_rhigh),('samples',self.s_rcount)]:sk.addWidget(QLabel(title));sk.addWidget(widget)
+        sk2=QHBoxLayout();sv.addLayout(sk2)
+        self.s_kp_on=QCheckBox('Override cable kp [N/m]');self.s_kp=self.number(250000,10,1e7,0);self.s_kp.setEnabled(False)
+        self.s_kp_on.toggled.connect(self.s_kp.setEnabled);sk2.addWidget(self.s_kp_on);sk2.addWidget(self.s_kp)
+        sk2.addWidget(QLabel('Show'));self.s_metric=QComboBox();self.s_metric.addItems(['RMSE [px]','J [px²]']);self.s_metric.currentIndexChanged.connect(self.draw_surface);sk2.addWidget(self.s_metric)
+        self.surface_button=QPushButton('3. Sweep k₂ × ratio');self.surface_button.clicked.connect(self.sweep_surface);sk2.addWidget(self.surface_button)
+        self.surface_cancel=QPushButton('Cancel');self.surface_cancel.clicked.connect(self.cancel.set);sk2.addWidget(self.surface_cancel);sk2.addStretch(1)
+        self.surface_text=QLabel(SURFACE_FORMULA+'. Every included pose is scored at every (k₂, r); a grid point counts only if all poses converge without contact. '
+            'Default kp is the model value. Saved as fit_surface.json/.csv/.png; fit_results.json is not changed.')
+        self.surface_text.setWordWrap(True);self.surface_text.setFixedHeight(70);sv.addWidget(self.surface_text)
+        self.s_figure=Figure(figsize=(10,4),layout='constrained');self.s_canvas=FigureCanvasQTAgg(self.s_figure)
+        sv.addWidget(NavigationToolbar2QT(self.s_canvas,self));sv.addWidget(self.s_canvas,1)
         self.table.itemChanged.connect(self.invalidate_review);self.dwell.valueChanged.connect(self.invalidate_review)
         self.return_speed.valueChanged.connect(self.invalidate_review)
         self.defaults();self.timer=QTimer(self);self.timer.timeout.connect(self.poll);self.timer.start(100)
@@ -216,6 +236,7 @@ class CampaignWindow(QDialog):
             plan['session']=item['packet']['session']
             self.store=CampaignStore.create(Path(self.host.session.log_dir)/'campaigns',plan,self.rows(),item,self.host.config,self.host.fit,
                 'automatic' if self.mode.currentIndex()==0 else 'manual')
+            self.surface=None;self.draw_surface()
             if self.mode.currentIndex()==1:self.host.analysis_mode_box.setCurrentIndex(1)
             self.runner=CampaignRunner(plan,self.host.session.send,self.capture,self.changed)
             self.poses.setRowCount(0);self.runner.start();self.refresh_poses()
@@ -265,7 +286,7 @@ class CampaignWindow(QDialog):
             try:self.messages.get_nowait()
             except queue.Empty:break
         if self.store and not (self.store.root/'campaign.json').exists():
-            self.store=None;self.poses.setRowCount(0);self.set_status('This run was discarded.')
+            self.store=None;self.surface=None;self.draw_surface();self.poses.setRowCount(0);self.set_status('This run was discarded.')
         if self.store:self.refresh_poses();self.draw()
 
     def shutdown_wait(self):
@@ -283,7 +304,7 @@ class CampaignWindow(QDialog):
     def load(self,path):
         if self.quiescing:return
         try:
-            self.store=CampaignStore(Path(path).parent);self.runner=None;self.store.verify_model();self.poses.setRowCount(0);self.refresh_poses();self.draw()
+            self.store=CampaignStore(Path(path).parent);self.runner=None;self.store.verify_model();self.poses.setRowCount(0);self.refresh_poses();self.draw();self.load_surface()
             self.tabs.setCurrentIndex(1)
             self.set_status(f'Opened {len(self.store.doc["poses"])}/{len(self.store.doc["plan"]["poses"])} poses. Motion never resumes from a saved campaign.')
         except Exception as exc:self.set_status('Could not open campaign: '+str(exc))
@@ -352,6 +373,66 @@ class CampaignWindow(QDialog):
             except Exception as exc:self.messages.put(('error',str(exc)))
         self.worker=threading.Thread(target=work,daemon=True);self.worker.start()
 
+    def sweep_surface(self):
+        if self.quiescing:return
+        if not self.store or self.active or self.busy:return
+        self.busy=True;self.cancel.clear();self.tabs.setCurrentIndex(3);self.set_status('Sweeping k₂ × stiffness ratio over saved poses; no hardware is used.')
+        store=self.store
+        kwargs=dict(k_lower=self.s_klow.value(),k_upper=self.s_khigh.value(),k_count=self.s_kcount.value(),
+                    r_lower=self.s_rlow.value(),r_upper=self.s_rhigh.value(),r_count=self.s_rcount.value(),
+                    cable_kp=self.s_kp.value() if self.s_kp_on.isChecked() else None)
+        def progress(n,total,stage):self.messages.put(('progress',f'{stage}: {n}/{total} pose evaluations'))
+        def work():
+            try:self.messages.put(('surface',fit_surface(store,progress=progress,cancel=self.cancel,**kwargs)))
+            except Exception as exc:self.messages.put(('error',str(exc)))
+        self.worker=threading.Thread(target=work,daemon=True);self.worker.start()
+
+    def load_surface(self):
+        self.surface=None
+        path=self.store.root/'fit_surface.json' if self.store else None
+        if path and path.exists():
+            try:self.surface=json.loads(path.read_text())
+            except (OSError,ValueError):self.surface=None
+        self.draw_surface()
+
+    def draw_surface(self,*_):
+        self.s_figure.clear();res=self.surface
+        if not res:
+            self.s_canvas.draw_idle();return
+        rmse=self.s_metric.currentIndex()==0
+        ks=np.array(res['k2']);rs=np.array(res['ratio'])
+        J=np.array([[np.nan if v is None else v for v in row] for row in res['shared_cost_px2']],float)
+        Z=np.sqrt(J) if rmse else J;label='Shared RMSE [px]' if rmse else 'Shared J [px²]'
+        a,b=self.s_figure.subplots(1,2)
+        import matplotlib;cmap=matplotlib.colormaps['viridis_r'].copy();cmap.set_bad('#9e9e9e')
+        mesh=a.pcolormesh(ks,rs,np.ma.masked_invalid(Z),shading='nearest',cmap=cmap);self.s_figure.colorbar(mesh,ax=a,label=label)
+        if np.isfinite(Z).sum()>=4:
+            try:a.contour(ks,rs,Z,levels=10,colors='white',linewidths=.5,alpha=.6)
+            except (ValueError,TypeError):pass
+        m=res['minimum'];a.scatter(m['k2'],m['ratio'],marker='*',s=180,color='#e36b36',edgecolor='k',label='Minimum',zorder=5)
+        base=res.get('baseline_exponential')
+        if base:a.scatter(base['k2'],base['ratio'],marker='o',s=60,facecolor='none',edgecolor='#d32f2f',lw=1.5,label='Campaign k₂, r',zorder=5)
+        a.axhline(1.0,color='w',lw=.6,ls='--')
+        a.set(xscale='log',xlabel='k₂ [N m/rad]',ylabel='Adjacent stiffness ratio r',title='Grey = invalid for ≥1 pose');a.legend(loc='best',fontsize=8)
+        v=res['valley']
+        if v:
+            vr=[p['ratio'] for p in v];vy=[p['rmse_px'] if rmse else p['cost_px2'] for p in v]
+            b.plot(vr,vy,'o-',ms=3,color='#087e8b',label='Best k₂ at each r');b.set(xlabel='Adjacent stiffness ratio r',ylabel=label,title='Valley: error vs ratio')
+            b2=b.twinx();b2.plot(vr,[p['k2'] for p in v],'--',color='#9e9e9e',lw=1);b2.set_ylabel('k₂ at valley [N m/rad]');b2.set_yscale('log')
+            b.axvline(m['ratio'],color='#e36b36',lw=1)
+            if base:b.axvline(base['ratio'],color='#d32f2f',lw=1,ls=':')
+            b.legend(loc='upper center',fontsize=8)
+        kp=f"cable kp {res['cable_kp_N_per_m']:.6g} N/m"+(' (overridden)' if res['cable_kp_overridden'] else ' (model)')
+        stale='' if (self.store and surface_is_current(self.store,res)) else ' · STALE: points changed since this sweep, run again'
+        edge=f" · minimum on {', '.join(m['boundary_axes'])} grid edge: widen range" if m['at_boundary'] else ''
+        old=f" · campaign (k₂ {base['k2']:.4g}, r {base['ratio']:.4g}): RMSE {base['rmse_px']:.3f} px" if base else ''
+        self.surface_text.setText(f"{res['included_poses']} poses · {kp} · valid {res['valid_points']}/{res['total_points']} grid points.\n"
+            f"Minimum: k₂ = {m['k2']:.5g} N m/rad, r = {m['ratio']:.4g}, J = {m['cost_px2']:.2f} px², RMSE = {m['rmse_px']:.3f} px{old}{edge}{stale}.\n"
+            'k₂ is relative to cable kp and gravity: report it as an effective value. Per-pose minima are in fit_surface.json.')
+        from appearance import theme_figure
+        theme_figure(self.s_figure,self.host.theme);self.s_canvas.draw_idle()
+        if self.store:self.s_figure.savefig(self.store.root/'fit_surface.png',dpi=140)
+
     def individual(self):
         if self.quiescing:return
         if not self.store or self.active or self.busy:return
@@ -392,6 +473,7 @@ class CampaignWindow(QDialog):
                 self.refresh_poses()
             elif kind=='progress':self.set_status(value)
             elif kind=='fit':self.busy=False;self.refresh_poses();self.draw();self.set_status('Shared baseline finished and saved. Review it, then choose 2. Fit each pose.')
+            elif kind=='surface':self.busy=False;self.surface=value;self.draw_surface();self.set_status('k₂ × ratio surface finished and saved to fit_surface.json/.csv/.png.')
             elif kind=='error':self.busy=False;self.refresh_poses();self.set_status('Analysis: '+value)
             elif kind=='prepared':
                 self.busy=False
@@ -405,9 +487,9 @@ class CampaignWindow(QDialog):
         self.start_button.setToolTip('Simulate / review and approve the plan first.' if not self.approved_review else 'Run the approved journey from its reviewed starting lengths.')
         self.stop_button.setEnabled(bool(self.host.session));self.plan_page.setEnabled(not active and not self.busy and not editing)
         self.open_button.setEnabled(not active and not self.busy and not editing)
-        for b in (self.fit_button,self.edit_button,self.next_button,self.exclude_button):b.setEnabled(bool(self.store) and not active and not self.busy and not editing)
+        for b in (self.fit_button,self.surface_button,self.edit_button,self.next_button,self.exclude_button):b.setEnabled(bool(self.store) and not active and not self.busy and not editing)
         self.individual_button.setEnabled(bool(self.store and self.store.doc.get('analysis')) and not active and not self.busy and not editing)
-        self.cancel_button.setEnabled(self.busy)
+        self.cancel_button.setEnabled(self.busy);self.surface_cancel.setEnabled(self.busy)
 
     def closeEvent(self,event):
         self.abort('Campaign window closed; held and retained completed poses.')
