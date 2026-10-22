@@ -80,6 +80,11 @@ with tempfile.TemporaryDirectory() as td:
         while d.busy and time.monotonic()<end:app.processEvents();time.sleep(.02)
     overlays=sorted(store.root.glob('surface_overlay_pose_*.png'));assert len(overlays)==3,d.status.text()
     scaled=fit_surface(store,.5,2.,3,.9,1.,3,pixels_per_m=4000.)
+    lab=fit_surface(store,.5,2.,3,.9,1.,3,model_path='model/new_20261013/spirob_robot.xml')
+    assert lab['model_source']=='external' and lab['model_xml'].endswith('new_20261013/spirob_robot.xml')
+    try:fit_surface(store,.5,2.,3,.9,1.,3,model_path='model/does_not_exist.xml')
+    except (ValueError,OSError):pass
+    else:raise AssertionError('Missing model accepted')
     assert scaled['pixels_per_m_overridden'] and scaled['pixels_per_m']==4000. and scaled['campaign_pixels_per_m']!=4000.
     d.surface=scaled;d.draw_surface();assert 'scale 4000 px/m (overridden)' in d.surface_text.text()
     out=Path(os.environ.get('SPIROB_TEST_OUTPUT','/tmp/spirob-v092-verification'));out.mkdir(parents=True,exist_ok=True)

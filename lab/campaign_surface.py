@@ -10,6 +10,8 @@ fit_results.json, the live model, motors or the camera.
 """
 import copy
 import csv
+import hashlib
+from pathlib import Path
 import numpy as np
 from analysis import point_cost
 from spirob_analysis.fitting import predict
@@ -34,7 +36,7 @@ def set_cable_kp(model, kp):
 
 
 def fit_surface(store, k_lower=.03, k_upper=3., k_count=21, r_lower=.90, r_upper=1.10, r_count=21,
-                cable_kp=None, pixels_per_m=None, progress=None, cancel=None):
+                cable_kp=None, pixels_per_m=None, model_path=None, progress=None, cancel=None):
     if (not np.isfinite([k_lower, k_upper, k_count, r_lower, r_upper, r_count]).all()
             or not .001 <= k_lower < k_upper <= 10 or not .5 <= r_lower < r_upper <= 1.5
             or int(k_count) != k_count or int(r_count) != r_count
@@ -46,7 +48,11 @@ def fit_surface(store, k_lower=.03, k_upper=3., k_count=21, r_lower=.90, r_upper
     if not selected:
         raise ValueError('No usable physical measurements yet. Open Poses and assign joints.')
     fixed = copy.deepcopy(doc['fit']['candidate']['parameters'])
-    model = SpiRobModel(store.config()['model'])
+    model_xml = Path(model_path).resolve() if model_path else Path(store.config()['model'])
+    model = SpiRobModel(model_xml)
+    snapshot = SpiRobModel(store.config()['model'])
+    if model.names != snapshot.names:
+        raise ValueError('The chosen model has different joints from the campaign model; its points cannot be reused.')
     model_kp = float(model.kp[0])
     if cable_kp is not None:
         set_cable_kp(model, cable_kp)
@@ -134,6 +140,8 @@ def fit_surface(store, k_lower=.03, k_upper=3., k_count=21, r_lower=.90, r_upper
         included_poses=len(selected), excluded_poses=[p['number'] for p in doc['poses'] if p['excluded']],
         missing_points=[p['number'] for p in doc['poses'] if p['observation'] is None and not p['excluded']],
         fixed_parameters=fixed, model_hashes=doc['model_hashes'],
+        model_source='campaign snapshot' if model_path is None else 'external',
+        model_xml=str(model_xml), model_xml_sha256=hashlib.sha256(model_xml.read_bytes()).hexdigest(),
         requested_grid=dict(k_lower=k_lower, k_upper=k_upper, k_count=int(k_count),
                             r_lower=r_lower, r_upper=r_upper, r_count=int(r_count)),
         meaning='Equal weight per pose; J = mean squared Euclidean pixel error per point, averaged over poses. '
@@ -171,7 +179,10 @@ def render_overlays(store, result):
     """
     from matplotlib.figure import Figure
     from PIL import Image
-    model = SpiRobModel(store.config()['model'])
+    xml = Path(result['model_xml']) if result.get('model_source') == 'external' else Path(store.config()['model'])
+    if result.get('model_source') == 'external' and hashlib.sha256(xml.read_bytes()).hexdigest() != result['model_xml_sha256']:
+        raise ValueError('The model used for this sweep has changed since. Sweep again.')
+    model = SpiRobModel(xml)
     if result.get('cable_kp_overridden'):
         set_cable_kp(model, result['cable_kp_N_per_m'])
     fixed = dict(result['fixed_parameters'], stiffness_exponent=1.)
@@ -214,7 +225,8 @@ def render_overlays(store, result):
         ax.set_xlim(lo[0], hi[0]); ax.set_ylim(hi[1], lo[1])
         D = obs['displacement_mm']
         ax.set_title(f"Pose {pose['number']} · cable Δ = ({D[0]:+.2f}, {D[1]:+.2f}) mm · "
-                     f"kp {result['cable_kp_N_per_m']:.6g} N/m · scale {result['pixels_per_m']:.6g} px/m")
+                     f"kp {result['cable_kp_N_per_m']:.6g} N/m · scale {result['pixels_per_m']:.6g} px/m · "
+                     + ('Lab model ' + xml.parent.name if result.get('model_source') == 'external' else 'campaign model'))
         ax.legend(loc='lower left', fontsize=8)
         path = store.root / f"surface_overlay_pose_{pose['number']:03d}.png"
         fig.savefig(path, dpi=110)

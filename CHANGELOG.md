@@ -1,5 +1,23 @@
 # Changes
 
+## SpiRob Lab 0.9.1 + E1 marker dots and horizontal 13-Oct model
+
+- **Model:** `lab/model/new_20261013/spirob_robot.xml` is wrapped in `robot_base`
+  (pos 0 0 0.09, euler −1.5708 0 0), exactly as `lab/model/spirob_robot.xml`. The robot
+  now bends in the horizontal plane; gravity no longer acts as in-plane stiffness.
+  Lab copy only. Campaigns keep their own frozen model copy.
+- **Marker dots (E1):** `dot_tracking.py` finds the black dot at each element centre
+  (two on the base element), orders them base → tip and reports link_002…link_021 as
+  `centres` landmarks. Exposure-relative thresholds; up to two missing dots skipped.
+- Live: **Marker dots** checkbox under *Measurement mode* (Image estimation) replaces the
+  silhouette centreline. Saved in lab.local.json (`vision_method`).
+- Campaign: **Measure marker dots** on the poses tab measures saved photos, fills poses
+  without points (or replaces yours if ticked), writes dots_overlay.jpg per pose and
+  dots_summary.csv comparing dots with your manual element centres.
+- k₂ × ratio tab: **Use current Lab model** (default on) scores old campaigns with the
+  corrected model instead of the campaign's frozen copy.
+- Verification: lab/tests/verify_v093.py.
+
 ## SpiRob Lab 0.9.1 + campaign stiffness-ratio surface
 
 - New campaign tab **k₂ × stiffness ratio**: sweeps k₂ (log grid) and the adjacent

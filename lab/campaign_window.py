@@ -57,6 +57,8 @@ class CampaignWindow(QDialog):
         self.edit_button=QPushButton('Place / review joints');self.edit_button.clicked.connect(self.edit_selected);controls.addWidget(self.edit_button)
         self.next_button=QPushButton('Review next unfinished');self.next_button.clicked.connect(self.next_unfinished);controls.addWidget(self.next_button)
         self.exclude_button=QPushButton('Exclude / include selected');self.exclude_button.clicked.connect(self.exclude);controls.addWidget(self.exclude_button)
+        self.dots_button=QPushButton('Measure marker dots');self.dots_button.clicked.connect(self.measure_dots);controls.addWidget(self.dots_button)
+        self.dots_replace=QCheckBox('Replace my points');self.dots_replace.setToolTip('Off: poses with manual points keep them; dots are saved beside them (dots.json) and compared in dots_summary.csv.');controls.addWidget(self.dots_replace)
         self.poses=QTableWidget(0,5);self.poses.setHorizontalHeaderLabels(['Pose / image','Label','State','L₁, L₂ targets','Details'])
         self.poses.setSelectionBehavior(QTableWidget.SelectRows);self.poses.setSelectionMode(QTableWidget.SingleSelection)
         self.poses.setEditTriggers(QTableWidget.NoEditTriggers);self.poses.setIconSize(__import__('PySide6.QtCore',fromlist=['QSize']).QSize(100,56))
@@ -89,6 +91,8 @@ class CampaignWindow(QDialog):
         self.s_kp_on.toggled.connect(self.s_kp.setEnabled);sk2.addWidget(self.s_kp_on);sk2.addWidget(self.s_kp)
         self.s_ppm_on=QCheckBox('Override image scale [px/m]');self.s_ppm=self.number(4250,500,50000,1);self.s_ppm.setEnabled(False)
         self.s_ppm_on.toggled.connect(self.s_ppm.setEnabled);sk2.addWidget(self.s_ppm_on);sk2.addWidget(self.s_ppm)
+        self.s_labmodel=QCheckBox('Use current Lab model');self.s_labmodel.setChecked(True)
+        self.s_labmodel.setToolTip('Score the saved points with the model in config.json (e.g. the corrected horizontal XML) instead of the copy frozen inside this campaign.');sk2.addWidget(self.s_labmodel)
         sk2.addWidget(QLabel('Show'));self.s_metric=QComboBox();self.s_metric.addItems(['RMSE [px]','J [px²]']);self.s_metric.currentIndexChanged.connect(self.draw_surface);sk2.addWidget(self.s_metric)
         self.surface_button=QPushButton('3. Sweep k₂ × ratio');self.surface_button.clicked.connect(self.sweep_surface);sk2.addWidget(self.surface_button)
         self.surface_cancel=QPushButton('Cancel');self.surface_cancel.clicked.connect(self.cancel.set);sk2.addWidget(self.surface_cancel)
@@ -376,6 +380,18 @@ class CampaignWindow(QDialog):
             except Exception as exc:self.messages.put(('error',str(exc)))
         self.worker=threading.Thread(target=work,daemon=True);self.worker.start()
 
+    def measure_dots(self):
+        if self.quiescing or not self.store or self.active or self.busy:return
+        self.busy=True;self.cancel.clear();self.set_status('Measuring marker dots on saved photos; no hardware is used.')
+        store,replace=self.store,self.dots_replace.isChecked()
+        def progress(n,total,stage):self.messages.put(('progress',f'{stage}: {n}/{total}'))
+        def work():
+            try:
+                from campaign_dots import measure_campaign_dots
+                self.messages.put(('dots',measure_campaign_dots(store,replace,progress,self.cancel)))
+            except Exception as exc:self.messages.put(('error',str(exc)))
+        self.worker=threading.Thread(target=work,daemon=True);self.worker.start()
+
     def sweep_surface(self):
         if self.quiescing:return
         if not self.store or self.active or self.busy:return
@@ -384,7 +400,8 @@ class CampaignWindow(QDialog):
         kwargs=dict(k_lower=self.s_klow.value(),k_upper=self.s_khigh.value(),k_count=self.s_kcount.value(),
                     r_lower=self.s_rlow.value(),r_upper=self.s_rhigh.value(),r_count=self.s_rcount.value(),
                     cable_kp=self.s_kp.value() if self.s_kp_on.isChecked() else None,
-                    pixels_per_m=self.s_ppm.value() if self.s_ppm_on.isChecked() else None)
+                    pixels_per_m=self.s_ppm.value() if self.s_ppm_on.isChecked() else None,
+                    model_path=str(Path(self.host.config['model']).resolve()) if self.s_labmodel.isChecked() else None)
         def progress(n,total,stage):self.messages.put(('progress',f'{stage}: {n}/{total} pose evaluations'))
         def work():
             try:self.messages.put(('surface',fit_surface(store,progress=progress,cancel=self.cancel,**kwargs)))
@@ -440,6 +457,8 @@ class CampaignWindow(QDialog):
             if base:h.append(b.axvline(base['ratio'],color='#d32f2f',lw=1,ls=':',label=f"Campaign model r = {base['ratio']:.3f}"))
             b.legend(handles=h,loc='upper center',fontsize=7,framealpha=.85)
         kp=f"cable kp {res['cable_kp_N_per_m']:.6g} N/m"+(' (overridden)' if res['cable_kp_overridden'] else ' (model)')
+        if res.get('model_source')=='external':kp+=f" · Lab model {Path(res['model_xml']).parent.name}/{Path(res['model_xml']).name} ({res['model_xml_sha256'][:8]})"
+        elif 'model_source' in res:kp+=' · campaign frozen model'
         if 'pixels_per_m' in res:kp+=f" · scale {res['pixels_per_m']:.6g} px/m"+(' (overridden)' if res.get('pixels_per_m_overridden') else ' (campaign)')
         stale='' if (self.store and surface_is_current(self.store,res)) else ' · STALE: points changed since this sweep, run again'
         edge=f" · minimum on {', '.join(m['boundary_axes'])} grid edge: widen range" if m['at_boundary'] else ''
@@ -491,6 +510,11 @@ class CampaignWindow(QDialog):
                 self.refresh_poses()
             elif kind=='progress':self.set_status(value)
             elif kind=='fit':self.busy=False;self.refresh_poses();self.draw();self.set_status('Shared baseline finished and saved. Review it, then choose 2. Fit each pose.')
+            elif kind=='dots':
+                self.busy=False;self.refresh_poses();self.draw()
+                ok=[r for r in value if r['links']];cmp=[r['mean_px'] for r in value if r.get('mean_px') is not None]
+                self.set_status(f'Marker dots: {len(ok)}/{len(value)} poses measured'+(f'; mean distance to your element centres {np.mean(cmp):.1f} px over {len(cmp)} poses' if cmp else '')
+                    +'. Review dots_overlay.jpg in each pose folder and dots_summary.csv.')
             elif kind=='surface':self.busy=False;self.surface=value;self.draw_surface();self.set_status('k₂ × ratio surface finished and saved to fit_surface.json/.csv/.png.')
             elif kind=='overlay':
                 self.busy=False;self.set_status(f'Saved {len(value)} overlays ({value[0].name} …) in the campaign folder.')
@@ -508,7 +532,7 @@ class CampaignWindow(QDialog):
         self.start_button.setToolTip('Simulate / review and approve the plan first.' if not self.approved_review else 'Run the approved journey from its reviewed starting lengths.')
         self.stop_button.setEnabled(bool(self.host.session));self.plan_page.setEnabled(not active and not self.busy and not editing)
         self.open_button.setEnabled(not active and not self.busy and not editing)
-        for b in (self.fit_button,self.surface_button,self.edit_button,self.next_button,self.exclude_button):b.setEnabled(bool(self.store) and not active and not self.busy and not editing)
+        for b in (self.fit_button,self.surface_button,self.edit_button,self.next_button,self.exclude_button,self.dots_button):b.setEnabled(bool(self.store) and not active and not self.busy and not editing)
         self.individual_button.setEnabled(bool(self.store and self.store.doc.get('analysis')) and not active and not self.busy and not editing)
         self.cancel_button.setEnabled(self.busy);self.surface_cancel.setEnabled(self.busy)
         self.overlay_button.setEnabled(bool(self.store and self.surface) and not active and not self.busy and not editing)
