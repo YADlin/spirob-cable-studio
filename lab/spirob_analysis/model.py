@@ -74,6 +74,14 @@ class SpiRobModel:
                           else ratio ** (exponent * np.arange(len(self.original_k)-1)))
         self.stiffness_ratio, self.stiffness_exponent = ratio, exponent
 
+    def set_stiffness_weights(self, weights):
+        """Independent profile: k_i = k2 * weights[i-2] for j_002 … j_N (weights[0] == 1)."""
+        w = np.asarray(weights, float)
+        if w.shape != (len(self.original_k)-1,) or not np.all(np.isfinite(w)) or np.any(w <= 0):
+            raise ValueError(f'Need {len(self.original_k)-1} positive joint stiffness weights.')
+        self.k_weights = w / w[0]
+        self.stiffness_ratio, self.stiffness_exponent = None, None
+
     def scale(self, k2=None, d2=None):
         k2 = self.k2 if k2 is None else float(k2)
         d2 = self.d2 if d2 is None else float(d2)

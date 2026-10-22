@@ -61,7 +61,7 @@ def _rotate(v, angle):
     return np.array([c * v[0] - s * v[1], s * v[0] + c * v[1]])
 
 
-def _grow(points, start, direction, spacing, first_gap, max_missing):
+def _grow(points, start, direction, spacing, first_gap, max_missing, weak=None):
     """Walk from the base along the chain, predicting each next element centre.
 
     gaps[k] = expected image distance from element k−1 to element k (k=0: from
@@ -69,6 +69,7 @@ def _grow(points, start, direction, spacing, first_gap, max_missing):
     max_missing times; the prediction then spans the summed gaps.
     """
     gaps = np.r_[first_gap, spacing]
+    weak = np.zeros(len(points), bool) if weak is None else np.asarray(weak, bool)
     used = np.zeros(len(points), bool)
     chain, ids, missing = [], [], 0
     last, d, turn = np.asarray(start, float), direction / np.linalg.norm(direction), 0.
@@ -84,9 +85,16 @@ def _grow(points, start, direction, spacing, first_gap, max_missing):
             predicted = last + gap * _rotate(d, turn * (skip + 1))
             dist = np.linalg.norm(points[:, :2] - predicted, axis=1)
             dist[used] = np.inf
-            j = int(np.argmin(dist))
-            if dist[j] < .45 * gap + 4 and np.linalg.norm(points[j, :2] - last) > .4 * gap:
-                found = (j, skip)
+            far = np.linalg.norm(points[:, :2] - last, axis=1) > .4 * gap
+            # Clear dots first; faint (often small distal) dots only close to the prediction.
+            strong_ok = (~weak) & far & (dist < .45 * gap + 4)
+            weak_ok = weak & far & (dist < .3 * gap + 2)
+            for ok in (strong_ok, weak_ok):
+                if ok.any():
+                    j = int(np.argmin(np.where(ok, dist, np.inf)))
+                    found = (j, skip)
+                    break
+            if found:
                 break
         if found is None:
             break
@@ -118,21 +126,28 @@ def find_base_pairs(points, base_hint=None, radius=80., pair=(10., 35.)):
     return pairs
 
 
-def measure_dots(rgb, spacing_px, base_hint=None, min_links=16, max_missing=2):
+def measure_dots(rgb, spacing_px, base_hint=None, min_links=12, max_missing=2):
     """Return an observation compatible with the Lab, or raise ValueError."""
     rgb = np.asarray(rgb)
-    points = detect_dots(rgb)
+    strong = detect_dots(rgb)
+    level = float(np.percentile(cv2.cvtColor(rgb.astype(np.uint8), cv2.COLOR_RGB2GRAY), 99.5))
+    faint = detect_dots(rgb, min_area=3, contrast=.1 * level, white=.6 * level)
+    if len(strong) and len(faint):
+        near = np.min(np.linalg.norm(faint[:, None, :2] - strong[None, :, :2], axis=2), axis=1)
+        faint = faint[near > 4]
+    points = np.vstack([strong, faint]) if len(faint) else strong
+    weak = np.r_[np.zeros(len(strong), bool), np.ones(len(points) - len(strong), bool)]
     if len(points) < min_links + 2:
         raise ValueError(f'Only {len(points)} marker dots visible; need at least {min_links + 2}.')
     spacing = np.asarray(spacing_px, float)
     best = None
-    for i, j in find_base_pairs(points, base_hint):
+    for i, j in find_base_pairs(strong, base_hint):
         for a, b in ((i, j), (j, i)):          # b = the base dot nearer link_002
-            direction = points[b, :2] - points[a, :2]
+            direction = strong[b, :2] - strong[a, :2]
             # link_002 centre lies ~1–5 base-pair spacings beyond the base pair
             for factor in (2., 3.5, 5.):
-                chain, ids, missing, used = _grow(points, points[b, :2], direction,
-                                                  spacing, factor * np.linalg.norm(direction), max_missing)
+                chain, ids, missing, used = _grow(points, strong[b, :2], direction,
+                                                  spacing, factor * np.linalg.norm(direction), max_missing, weak)
                 score = (len(ids), -missing)
                 if best is None or score > best[0]:
                     best = (score, chain, ids, missing, used, (a, b))
@@ -143,7 +158,7 @@ def measure_dots(rgb, spacing_px, base_hint=None, min_links=16, max_missing=2):
         raise ValueError(f'Marker chain broke after {len(ids)} elements ({ids[-1] if ids else "none"}); '
                          'check lighting, occlusion or a missing dot.')
     chain = np.asarray(chain)
-    base = points[[a, b], :2]
+    base = strong[[a, b], :2]
     curve = np.vstack([base, chain])
     seg = np.linalg.norm(np.diff(chain, axis=0), axis=1)
     tails = np.r_[np.cumsum(seg[::-1])[::-1], 0.]
@@ -152,7 +167,8 @@ def measure_dots(rgb, spacing_px, base_hint=None, min_links=16, max_missing=2):
                 visible_arc_px=float(seg.sum()), image_shape=list(rgb.shape[:2]),
                 measurement_mode='marker_dots', measurement_source='marker dots (automatic)',
                 base_dots_px=base.tolist(), missing_links=[n for n in LINK_IDS if n not in ids],
-                missing_count=int(missing), unused_dots=int((~used).sum()) - 2)
+                missing_count=int(missing), unused_dots=int((~used[:len(strong)]).sum()) - 2,
+                faint_used=int((used & weak).sum()))
 
 
 class DotTracker:

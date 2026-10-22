@@ -102,6 +102,14 @@ with tempfile.TemporaryDirectory() as td:
     w.dots_box.setChecked(True);assert w.config['vision_method']=='dots'
     w.dots_box.setChecked(False);assert w.config['vision_method']=='silhouette'
     w.open_campaign();dlg=w.campaign_window;dlg.load(store.root/'campaign.json');dlg.dots_replace.setChecked(True)
+    dlg.poses.selectRow(1);dlg.edit_selected()
+    end=time.monotonic()+60
+    while dlg.inspector is None and time.monotonic()<end:app.processEvents();time.sleep(.02)
+    ins=dlg.inspector;assert ins.mode.currentIndex()==1 and len(ins.manual)==20 and all(k.startswith('link_') for k in ins.manual),ins.edit_hint.text()
+    assert len([r for r in ins.rows if r['physical_px'] is not None and r['model_px'] is not None])==20
+    ins.manual.clear();ins.rebuild();assert ins.auto_place_dots() and len(ins.manual)==20
+    ins.close();app.processEvents()
+    print('PASS inspector: marker dots auto-placed as element centres on open and on demand, editable rows',flush=True)
     assert dlg.dots_button.isEnabled();dlg.dots_button.click()
     end=time.monotonic()+120
     while dlg.busy and time.monotonic()<end:app.processEvents();time.sleep(.02)

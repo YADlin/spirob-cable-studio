@@ -1,5 +1,20 @@
 # Changes
 
+## SpiRob Lab 0.9.1 + dots in the point editor, joint stiffness + cable transmission fit
+
+- **Point editor (campaign and main window):** opening an image auto-places the marker
+  dots as **element centres** (link_002…link_021) with the green line; edit any point.
+  **Auto-place marker dots** re-runs it (e.g. on poses you marked as joints earlier).
+- Dot tracker: faint second tier for small distal dots near the predicted position;
+  partial chains (≥ 12 elements) are returned with the missing elements unchecked.
+- Campaign tab **Joints + transmission**: fit every joint j_002…j_021 independently, or the
+  exponential profile, together with a per-cable **transmission gain/offset** (share of
+  encoder cable travel that bends the body). Antagonist treated as slack by default.
+  Optimiser: CMA-ES (PACE-style, global) then least squares, or least squares only.
+  Shows k_i/k₂ with σ, per-pose error, overlays, and exports an XML with fitted stiffness.
+- `SpiRobModel.set_stiffness_weights`, `predict(..., joint_weights=...)`, `cmaes.py`
+  (dependency-free CMA-ES). Verification: lab/tests/verify_v094.py.
+
 ## SpiRob Lab 0.9.1 + E1 marker dots and horizontal 13-Oct model
 
 - **Model:** `lab/model/new_20261013/spirob_robot.xml` is wrapped in `robot_base`

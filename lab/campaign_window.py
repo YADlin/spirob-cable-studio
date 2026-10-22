@@ -102,6 +102,35 @@ class CampaignWindow(QDialog):
         self.surface_text.setWordWrap(True);self.surface_text.setFixedHeight(70);sv.addWidget(self.surface_text)
         self.s_figure=Figure(figsize=(10,4),layout='constrained');self.s_canvas=FigureCanvasQTAgg(self.s_figure)
         sv.addWidget(NavigationToolbar2QT(self.s_canvas,self));sv.addWidget(self.s_canvas,1)
+        joints_page=QWidget();jv=QVBoxLayout(joints_page);self.tabs.addTab(joints_page,'Joints + transmission')
+        self.joint_result=None
+        jk=QHBoxLayout();jv.addLayout(jk)
+        self.j_k2=self.number(.18,.001,10,5);jk.addWidget(QLabel('Reference k₂ [N m/rad]'));jk.addWidget(self.j_k2)
+        self.j_kp_on=QCheckBox('Stiff cable, kp [N/m]');self.j_kp_on.setChecked(True);self.j_kp=self.number(250000,10,1e7,0)
+        self.j_kp_on.toggled.connect(self.j_kp.setEnabled);jk.addWidget(self.j_kp_on);jk.addWidget(self.j_kp)
+        self.j_smooth=self.number(0,0,100,2);jk.addWidget(QLabel('Smoothness'));jk.addWidget(self.j_smooth)
+        self.j_start=QComboBox();self.j_start.addItems(['exponential','uniform','previous']);self.j_start.setToolTip('previous: start from this campaign\'s last joint fit (e.g. exponential + transmission, then free the joints).');jk.addWidget(QLabel('Start'));jk.addWidget(self.j_start)
+        self.j_opt=QComboBox();self.j_opt.addItem('CMA-ES → least squares','cmaes');self.j_opt.addItem('Least squares only','least_squares')
+        self.j_opt.setToolTip('CMA-ES: global, derivative-free search (as in PACE), robust to slack/taut switching; then a local least-squares polish.');jk.addWidget(self.j_opt)
+        self.j_cma=QSpinBox();self.j_cma.setRange(100,20000);self.j_cma.setSingleStep(100);self.j_cma.setValue(1500);jk.addWidget(QLabel('CMA budget'));jk.addWidget(self.j_cma)
+        self.j_evals=QSpinBox();self.j_evals.setRange(10,400);self.j_evals.setValue(40);jk.addWidget(QLabel('Polish iterations'));jk.addWidget(self.j_evals);jk.addStretch(1)
+        jk2=QHBoxLayout();jv.addLayout(jk2)
+        self.j_profile=QComboBox();self.j_profile.addItem('Independent joints','independent');self.j_profile.addItem('Exponential (one ratio)','exponential');jk2.addWidget(self.j_profile)
+        self.j_gain=QCheckBox('Fit cable transmission gain');self.j_gain.setChecked(True)
+        self.j_gain.setToolTip('Per cable: how much of the encoder-measured cable travel reaches the body (slack, stretch, guide friction, spool radius).');jk2.addWidget(self.j_gain)
+        self.j_offset=QCheckBox('Fit cable offsets');self.j_offset.setChecked(True);jk2.addWidget(self.j_offset)
+        self.j_slack=QCheckBox('Antagonist slack');self.j_slack.setChecked(True)
+        self.j_slack.setToolTip('The lengthened cable is treated as slack, so the pulling cable alone sets the shape (as observed). Untick only with compliant cables: two taut inextensible cables lock the body.');jk2.addWidget(self.j_slack)
+        self.j_labmodel=QCheckBox('Use current Lab model');self.j_labmodel.setChecked(True);jk2.addWidget(self.j_labmodel)
+        self.joint_button=QPushButton('4. Fit each joint independently');self.joint_button.clicked.connect(self.fit_joints);jk2.addWidget(self.joint_button)
+        self.joint_cancel=QPushButton('Cancel');self.joint_cancel.clicked.connect(self.cancel.set);jk2.addWidget(self.joint_cancel)
+        self.joint_overlay=QPushButton('Overlay on pose photos');self.joint_overlay.clicked.connect(self.overlay_joints);jk2.addWidget(self.joint_overlay)
+        self.joint_export=QPushButton('Export fitted XML…');self.joint_export.clicked.connect(self.export_joints);jk2.addWidget(self.joint_export);jk2.addStretch(1)
+        self.joint_text=QLabel('Every free joint j_002…j_021 gets its own stiffness; joint 1 stays fixed. Shapes determine the ratios k_i/k₂; k₂ is held at the reference '
+            '(absolute stiffness needs a known force). Saved as joint_fit.json/.csv; fit_results and fit_surface are unchanged.')
+        self.joint_text.setWordWrap(True);self.joint_text.setFixedHeight(70);jv.addWidget(self.joint_text)
+        self.j_figure=Figure(figsize=(10,4),layout='constrained');self.j_canvas=FigureCanvasQTAgg(self.j_figure)
+        jv.addWidget(NavigationToolbar2QT(self.j_canvas,self));jv.addWidget(self.j_canvas,1)
         self.table.itemChanged.connect(self.invalidate_review);self.dwell.valueChanged.connect(self.invalidate_review)
         self.return_speed.valueChanged.connect(self.invalidate_review)
         self.defaults();self.timer=QTimer(self);self.timer.timeout.connect(self.poll);self.timer.start(100)
@@ -243,7 +272,7 @@ class CampaignWindow(QDialog):
             plan['session']=item['packet']['session']
             self.store=CampaignStore.create(Path(self.host.session.log_dir)/'campaigns',plan,self.rows(),item,self.host.config,self.host.fit,
                 'automatic' if self.mode.currentIndex()==0 else 'manual')
-            self.surface=None;self.draw_surface()
+            self.surface=None;self.draw_surface();self.joint_result=None;self.draw_joints()
             if self.mode.currentIndex()==1:self.host.analysis_mode_box.setCurrentIndex(1)
             self.runner=CampaignRunner(plan,self.host.session.send,self.capture,self.changed)
             self.poses.setRowCount(0);self.runner.start();self.refresh_poses()
@@ -293,7 +322,7 @@ class CampaignWindow(QDialog):
             try:self.messages.get_nowait()
             except queue.Empty:break
         if self.store and not (self.store.root/'campaign.json').exists():
-            self.store=None;self.surface=None;self.draw_surface();self.poses.setRowCount(0);self.set_status('This run was discarded.')
+            self.store=None;self.surface=None;self.draw_surface();self.joint_result=None;self.j_figure.clear();self.poses.setRowCount(0);self.set_status('This run was discarded.')
         if self.store:self.refresh_poses();self.draw()
 
     def shutdown_wait(self):
@@ -311,7 +340,8 @@ class CampaignWindow(QDialog):
     def load(self,path):
         if self.quiescing:return
         try:
-            self.store=CampaignStore(Path(path).parent);self.runner=None;self.store.verify_model();self.poses.setRowCount(0);self.refresh_poses();self.draw();self.load_surface()
+            self.store=CampaignStore(Path(path).parent);self.runner=None;self.store.verify_model();self.poses.setRowCount(0);self.refresh_poses();self.draw();self.load_surface();self.load_joints()
+            self.j_k2.setValue(self.store.doc['fit']['candidate']['parameters']['k2'])
             self.tabs.setCurrentIndex(1)
             self.set_status(f'Opened {len(self.store.doc["poses"])}/{len(self.store.doc["plan"]["poses"])} poses. Motion never resumes from a saved campaign.')
         except Exception as exc:self.set_status('Could not open campaign: '+str(exc))
@@ -417,6 +447,81 @@ class CampaignWindow(QDialog):
             except Exception as exc:self.messages.put(('error',str(exc)))
         self.worker=threading.Thread(target=work,daemon=True);self.worker.start()
 
+    def fit_joints(self):
+        if self.quiescing or not self.store or self.active or self.busy:return
+        self.busy=True;self.cancel.clear();self.tabs.setCurrentIndex(4);self.set_status('Fitting each joint stiffness to the saved poses; no hardware is used.')
+        store=self.store
+        kwargs=dict(k2_reference=self.j_k2.value(),cable_kp=self.j_kp.value() if self.j_kp_on.isChecked() else None,
+                    smooth=self.j_smooth.value(),fit_offset=self.j_offset.isChecked(),start=self.j_start.currentText(),
+                    profile=self.j_profile.currentData(),fit_gain=self.j_gain.isChecked(),
+                    optimizer=self.j_opt.currentData(),cma_evaluations=self.j_cma.value(),slack_antagonist=self.j_slack.isChecked(),
+                    max_evaluations=self.j_evals.value(),
+                    model_path=str(Path(self.host.config['model']).resolve()) if self.j_labmodel.isChecked() else None)
+        def progress(n,total,stage):self.messages.put(('progress',f'{stage}: {n}/{total} evaluations'))
+        def work():
+            try:
+                from joint_fit import fit_joints
+                self.messages.put(('joints',fit_joints(store,progress=progress,cancel=self.cancel,**kwargs)))
+            except Exception as exc:self.messages.put(('error',str(exc)))
+        self.worker=threading.Thread(target=work,daemon=True);self.worker.start()
+
+    def overlay_joints(self):
+        if self.quiescing or not self.store or not self.joint_result or self.active or self.busy:return
+        self.busy=True;self.set_status('Drawing the independent-joint fit on each pose photo…')
+        store,result=self.store,self.joint_result
+        def work():
+            try:
+                from joint_fit import render_overlays as joint_overlays
+                self.messages.put(('overlay',joint_overlays(store,result)))
+            except Exception as exc:self.messages.put(('error',str(exc)))
+        self.worker=threading.Thread(target=work,daemon=True);self.worker.start()
+
+    def export_joints(self):
+        if not self.joint_result:return
+        src=Path(self.joint_result['model_xml'])
+        name,_=QFileDialog.getSaveFileName(self,'Export XML with fitted joint stiffness',str(src.with_name(src.stem+'_joints_fitted.xml')),'MuJoCo XML (*.xml)')
+        if not name:return
+        try:
+            from joint_fit import export_xml
+            path=export_xml(self.joint_result,name)
+            note='' if Path(name).parent==src.parent else ' Keep it beside the original XML so the meshes resolve.'
+            self.set_status(f'Exported {path.name} (joint stiffness only; damping unchanged).'+note)
+        except Exception as exc:self.set_status('Export failed: '+str(exc))
+
+    def load_joints(self):
+        self.joint_result=None
+        path=self.store.root/'joint_fit.json' if self.store else None
+        if path and path.exists():
+            try:self.joint_result=json.loads(path.read_text())
+            except (OSError,ValueError):self.joint_result=None
+        self.draw_joints()
+
+    def draw_joints(self,*_):
+        self.j_figure.clear();res=self.joint_result
+        if not res:self.j_canvas.draw_idle();return
+        a,b=self.j_figure.subplots(1,2)
+        js=res['joints'];idx=np.arange(2,2+len(js));w=np.array([j['weight'] for j in js]);sd=np.array([j['sigma_log'] for j in js])
+        det=np.array([j['determined'] for j in js]);expw=np.array([j['exponential_weight'] for j in js])
+        a.errorbar(idx,w,yerr=[w-w*np.exp(-sd),w*np.exp(sd)-w],fmt='none',ecolor='#90a4ae',lw=1,capsize=2)
+        a.plot(idx[det],w[det],'o',color='#1e88e5',label='Fitted, pinned by data')
+        a.plot(idx[~det],w[~det],'o',mfc='none',color='#1e88e5',label='Fitted, NOT pinned (σ > factor 2)')
+        a.plot(idx,expw,'--',color='#e53935',label='Campaign exponential')
+        a.set(yscale='log',xlabel='Joint index i (j_00i)',ylabel='k_i / k₂',title=f"Joint stiffness relative to k₂ = {res['k2_reference']:.4g} N m/rad");a.legend(fontsize=7);a.grid(alpha=.3,which='both')
+        nums=[p['number'] for p in res['poses']]
+        b.plot(nums,[p['start_rmse_px'] or np.nan for p in res['poses']],'s--',color='#e53935',ms=4,label='Start (campaign values)')
+        b.plot(nums,[p['rmse_px'] or np.nan for p in res['poses']],'o-',color='#1e88e5',ms=4,label='Fitted')
+        b.set(xlabel='Pose',ylabel='RMSE [px]',title='Error per pose');b.legend(fontsize=7);b.grid(alpha=.3)
+        n_det=int(det.sum());stale='' if all(self.store.doc['poses'][p['number']-1]['annotation_revision']==p['annotation_revision'] for p in res['poses']) else ' · STALE: points changed, fit again'
+        t=res.get('transmission') or {};prof=res.get('profile','independent')
+        tx=(f" · transmission gain {t['gain'][0]:.3f}±{t['gain_sigma'][0]:.3f} / {t['gain'][1]:.3f}±{t['gain_sigma'][1]:.3f}" if t.get('fitted_gain') else '')+(f" · offsets {t['offset_mm'][0]:+.2f} / {t['offset_mm'][1]:+.2f} mm" if t.get('fitted_offset') else '')
+        model=('independent joints' if prof=='independent' else f"exponential r = {res['ratio']:.4f}±{res['ratio_sigma']:.4f}")
+        self.joint_text.setText(f"{len(res['poses'])} poses · {model} · cable kp {res['cable_kp_N_per_m']:.6g} N/m{tx} · "
+            f"RMSE {res['start_rmse_px']:.1f} → {res['rmse_px']:.1f} px · {n_det}/{len(js)} joints pinned by the data{stale}.\n"
+            +(f"CMA-ES {res['cma']['evaluations']} evaluations, then " if res.get('cma') else '')+f"{'converged' if res['converged'] else 'stopped at iteration limit'} after {res['evaluations']} least-squares iterations. Hollow points: the data do not determine that joint; add poses or smoothness. Values in joint_fit.csv.")
+        from appearance import theme_figure
+        theme_figure(self.j_figure,self.host.theme);self.j_canvas.draw_idle()
+        self.j_figure.savefig(self.store.root/'joint_fit.png',dpi=140)
+
     def load_surface(self):
         self.surface=None
         path=self.store.root/'fit_surface.json' if self.store else None
@@ -515,6 +620,7 @@ class CampaignWindow(QDialog):
                 ok=[r for r in value if r['links']];cmp=[r['mean_px'] for r in value if r.get('mean_px') is not None]
                 self.set_status(f'Marker dots: {len(ok)}/{len(value)} poses measured'+(f'; mean distance to your element centres {np.mean(cmp):.1f} px over {len(cmp)} poses' if cmp else '')
                     +'. Review dots_overlay.jpg in each pose folder and dots_summary.csv.')
+            elif kind=='joints':self.busy=False;self.joint_result=value;self.draw_joints();self.set_status('Independent joint fit finished and saved to joint_fit.json/.csv/.png.')
             elif kind=='surface':self.busy=False;self.surface=value;self.draw_surface();self.set_status('k₂ × ratio surface finished and saved to fit_surface.json/.csv/.png.')
             elif kind=='overlay':
                 self.busy=False;self.set_status(f'Saved {len(value)} overlays ({value[0].name} …) in the campaign folder.')
@@ -532,10 +638,12 @@ class CampaignWindow(QDialog):
         self.start_button.setToolTip('Simulate / review and approve the plan first.' if not self.approved_review else 'Run the approved journey from its reviewed starting lengths.')
         self.stop_button.setEnabled(bool(self.host.session));self.plan_page.setEnabled(not active and not self.busy and not editing)
         self.open_button.setEnabled(not active and not self.busy and not editing)
-        for b in (self.fit_button,self.surface_button,self.edit_button,self.next_button,self.exclude_button,self.dots_button):b.setEnabled(bool(self.store) and not active and not self.busy and not editing)
+        for b in (self.fit_button,self.surface_button,self.joint_button,self.edit_button,self.next_button,self.exclude_button,self.dots_button):b.setEnabled(bool(self.store) and not active and not self.busy and not editing)
         self.individual_button.setEnabled(bool(self.store and self.store.doc.get('analysis')) and not active and not self.busy and not editing)
         self.cancel_button.setEnabled(self.busy);self.surface_cancel.setEnabled(self.busy)
         self.overlay_button.setEnabled(bool(self.store and self.surface) and not active and not self.busy and not editing)
+        self.joint_overlay.setEnabled(bool(self.store and self.joint_result) and not active and not self.busy and not editing);self.joint_export.setEnabled(bool(self.joint_result) and not self.busy)
+        self.joint_cancel.setEnabled(self.busy)
 
     def closeEvent(self,event):
         self.abort('Campaign window closed; held and retained completed poses.')

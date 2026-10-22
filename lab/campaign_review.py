@@ -29,6 +29,9 @@ class CampaignInspector(PointInspector):
             self.mode.setCurrentIndex(int(annotations['mode']=='centres'))
             self.manual={r['id']:r['physical_px'] for r in annotations['rows'] if r['physical_px'] is not None}
             self.excluded={r['id'] for r in annotations['rows'] if not r['included']}
+        elif not self.manual:self.auto_place_dots(silent=True)
+        if (data or annotations) and self.mode.currentIndex()==0:
+            self.edit_hint.setText('Showing your saved points as JOINTS. If you placed them on the black element dots, press Auto-place marker dots to re-mark them as element centres.')
         self.rebuild();self.table.selectRow(0);self.draft_enabled=True
         self.stationary.toggled.connect(self.persist_draft)
         self.caption.setText(f'Pose {index+1}: {store.doc["poses"][index]["command"]["label"]}. Place every included joint, or explicitly uncheck obscured points. Drafts save after each edit; confirm the image before Save & next.'+(' Model prediction unavailable at current k₂; annotation remains available.' if item['result'].get('model_source')=='equilibrium unavailable' else ''))

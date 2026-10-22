@@ -49,6 +49,9 @@ class PointInspector(QDialog):
         self.full_frame.toggled.connect(lambda _checked:self.fit_view())
         self.fit_button=QPushButton('Fit view');self.fit_button.clicked.connect(self.fit_view);tools.addWidget(self.fit_button)
         self.place_button=QPushButton('Place selected');self.place_button.clicked.connect(self.begin_placement);tools.addWidget(self.place_button)
+        self.dots_button=QPushButton('Auto-place marker dots');self.dots_button.clicked.connect(lambda:self.auto_place_dots())
+        self.dots_button.setToolTip('Find the black dot at each element centre and place link_002…link_021 (Element centres mode). Edit any point afterwards.')
+        tools.addWidget(self.dots_button);self.dot_base=None
         tools.addStretch()
         self.save_button=QPushButton('Save image + table…');tools.addWidget(self.save_button);self.save_button.clicked.connect(self.save)
         help_button=QPushButton('Help…');tools.addWidget(help_button)
@@ -177,6 +180,7 @@ class PointInspector(QDialog):
         self._view_initialized=False
         self.reset_all()
         self.applied_profile=None if self.manual_mode else copy.deepcopy(self.snapshot['setup'].get('profile'))
+        if not self.applied_profile:self.auto_place_dots(silent=True)
         if self.applied_profile:
             self.mode.blockSignals(True);self.mode.setCurrentIndex(int(self.applied_profile['mode']=='centres'));self.mode.blockSignals(False)
             self.score_profile.setChecked(self.applied_profile.get('use_for_score',False));self.rebuild()
@@ -185,6 +189,40 @@ class PointInspector(QDialog):
         self.caption.setText(f'FROZEN — {self.snapshot["session"]} · frame {self.snapshot["frame_index"]} · t={self.snapshot["t_s"]:.3f} s\n{model_label}. The live camera and motor controls continue in the main window.')
         self.caption.setToolTip(self.caption.text())
         self.manual_readiness()
+
+    def dot_spacing(self):
+        """Expected element-centre spacing [px] from the model in use and the image scale."""
+        from spirob_analysis.model import SpiRobModel
+        from dot_tracking import expected_spacing_px
+        store=getattr(self,'store',None)
+        if store is not None:path=store.config()['model']
+        else:
+            host=self.parent()
+            path=(getattr(host,'config',None) or {}).get('model')
+            if not path:raise ValueError('No model available for dot spacing.')
+        scale=self.snapshot['setup'].get('pixels_per_m') or self.snapshot['parameters'].get('pixels_per_m')
+        return expected_spacing_px(SpiRobModel(path),float(scale))
+
+    def auto_place_dots(self, silent=False):
+        """Image-only: dots → element-centre points the user can then edit."""
+        if self.snapshot is None:return False
+        from dot_tracking import measure_dots
+        try:result=measure_dots(self.snapshot['rgb'],self.dot_spacing())
+        except (ValueError,OSError) as exc:
+            if not silent:QMessageBox.warning(self,'Marker dots not placed',str(exc))
+            else:self.edit_hint.setText('Marker dots not found automatically ('+str(exc)+'). Place points manually or press Auto-place marker dots.')
+            return False
+        self.mode.blockSignals(True);self.mode.setCurrentIndex(1);self.mode.blockSignals(False)
+        self.rigid.setChecked(False);self.rigid.setEnabled(False)
+        self.applied_profile=None
+        self.manual=dict(zip(result['landmark_ids'],result['points_px']))
+        self.excluded=set(result['missing_links'])
+        self.dot_base=result['base_dots_px']
+        self.rebuild()
+        missing=', '.join(n.replace('link_0','L') for n in result['missing_links'])
+        self.edit_hint.setText(f'Marker dots placed automatically: {len(result["landmark_ids"])}/20 element centres'
+            +(f'; not found (unchecked): {missing}. Tick a row and place it to add it.' if missing else '.')+' Select any row and click to correct it.')
+        return True
 
     def manual_readiness(self, *_):
         if not self.manual_mode or self.snapshot is None:return
@@ -305,6 +343,8 @@ class PointInspector(QDialog):
             ax.set(xlim=(max(0,lo[0]),min(w,hi[0])),ylim=(min(h,hi[1]),max(0,lo[1])))
         else:ax.set(xlim=(-.5,w-.5),ylim=(h-.5,-.5))
         ax.set(title='Green: physical · Red: MuJoCo · Thin lines: paired distance',xlabel='Native image x [px]',ylabel='Native image y [px]')
+        if self.dot_base:
+            b=np.asarray(self.dot_base);ax.scatter(b[:,0],b[:,1],marker='x',s=40,color='#ff9800',zorder=6)
         if self.snapshot['layout'].get('base_px'):
             base=self.snapshot['layout']['base_px'];ax.scatter(*base,marker='+',s=90,color='#ff4538')
             ax.annotate('j_001 base',base,xytext=(8,5),textcoords='offset points',color='black',
