@@ -72,6 +72,7 @@ class CampaignWindow(QDialog):
         for title,widget in [('k₂ min',self.low),('max',self.high),('samples',self.count)]:knobs.addWidget(QLabel(title));knobs.addWidget(widget)
         self.fit_button=QPushButton('1. Fit shared k₂');self.fit_button.clicked.connect(lambda:self.analyse(False));knobs.addWidget(self.fit_button)
         self.individual_button=QPushButton('2. Fit each pose');self.individual_button.clicked.connect(self.individual);knobs.addWidget(self.individual_button)
+        self.shared_xml=QPushButton('Save XML at shared k₂…');self.shared_xml.clicked.connect(self.export_shared_xml);knobs.addWidget(self.shared_xml)
         self.cancel_button=QPushButton('Cancel fit');self.cancel_button.clicked.connect(self.cancel.set);knobs.addWidget(self.cancel_button)
         self.result_text=QLabel('One common k₂ is evaluated across all included poses before separate k₂ values are reported.');self.result_text.setWordWrap(True);self.result_text.setFixedHeight(70);rv.addWidget(self.result_text)
         plotbar=QHBoxLayout();rv.addLayout(plotbar);plotbar.addWidget(QLabel('Per-pose horizontal axis:'))
@@ -96,7 +97,8 @@ class CampaignWindow(QDialog):
         sk2.addWidget(QLabel('Show'));self.s_metric=QComboBox();self.s_metric.addItems(['RMSE [px]','J [px²]']);self.s_metric.currentIndexChanged.connect(self.draw_surface);sk2.addWidget(self.s_metric)
         self.surface_button=QPushButton('3. Sweep k₂ × ratio');self.surface_button.clicked.connect(self.sweep_surface);sk2.addWidget(self.surface_button)
         self.surface_cancel=QPushButton('Cancel');self.surface_cancel.clicked.connect(self.cancel.set);sk2.addWidget(self.surface_cancel)
-        self.overlay_button=QPushButton('Overlay on pose photos');self.overlay_button.clicked.connect(self.overlay_surface);sk2.addWidget(self.overlay_button);sk2.addStretch(1)
+        self.overlay_button=QPushButton('Overlay on pose photos');self.overlay_button.clicked.connect(self.overlay_surface);sk2.addWidget(self.overlay_button)
+        self.surface_xml=QPushButton('Save XML at minimum…');self.surface_xml.clicked.connect(self.export_surface_xml);sk2.addWidget(self.surface_xml);sk2.addStretch(1)
         self.surface_text=QLabel(SURFACE_FORMULA+'. Every included pose is scored at every (k₂, r); a grid point counts only if all poses converge without contact. '
             'Default kp is the model value. Saved as fit_surface.json/.csv/.png; fit_results.json is not changed.')
         self.surface_text.setWordWrap(True);self.surface_text.setFixedHeight(70);sv.addWidget(self.surface_text)
@@ -447,6 +449,38 @@ class CampaignWindow(QDialog):
             except Exception as exc:self.messages.put(('error',str(exc)))
         self.worker=threading.Thread(target=work,daemon=True);self.worker.start()
 
+    def save_values_xml(self,k,d,label):
+        from datetime import datetime
+        from joint_editor import save_with_backup
+        lab=Path(self.host.config['model']).resolve()
+        suggestion=lab.with_name(f"spirob_robot_{label}_{datetime.now().strftime('%Y%m%d_%H%M')}.xml")
+        name,_=QFileDialog.getSaveFileName(self,'Save fitted stiffness/damping as XML',str(suggestion),'MuJoCo XML (*.xml)')
+        if not name:return
+        try:
+            names=[f'j_{i:03d}' for i in range(2,len(k)+2)]
+            note=save_with_backup(lab,names,k,d,name)
+            self.set_status(f'Saved {Path(name).name} (k₂ = {k[0]:.5g}). {note}')
+        except (OSError,ValueError) as exc:self.set_status('XML not saved: '+str(exc))
+
+    def model_values(self,model_xml,k2,ratio):
+        from spirob_analysis.model import SpiRobModel
+        model=SpiRobModel(model_xml);model.set_stiffness_profile(ratio);model.scale(k2,model.d2)
+        return [v.tolist() for v in model.joint_values()]
+
+    def export_shared_xml(self):
+        result=self.store.doc.get('analysis') if self.store else None
+        if not result:self.set_status('Fit shared k₂ first.');return
+        fixed=result['fixed_parameters']
+        k,d=self.model_values(self.store.config()['model'],result['shared_minimum']['k2'],fixed.get('stiffness_ratio'))
+        self.save_values_xml(k,d,f"k2_{k[0]:.4g}")
+
+    def export_surface_xml(self):
+        res=self.surface
+        if not res:self.set_status('Sweep k₂ × ratio first.');return
+        xml=res.get('model_xml') or self.store.config()['model']
+        m=res['minimum'];k,d=self.model_values(xml,m['k2'],m['ratio'])
+        self.save_values_xml(k,d,f"k2_{m['k2']:.4g}_r_{m['ratio']:.3f}")
+
     def fit_joints(self):
         if self.quiescing or not self.store or self.active or self.busy:return
         self.busy=True;self.cancel.clear();self.tabs.setCurrentIndex(4);self.set_status('Fitting each joint stiffness to the saved poses; no hardware is used.')
@@ -640,6 +674,7 @@ class CampaignWindow(QDialog):
         self.open_button.setEnabled(not active and not self.busy and not editing)
         for b in (self.fit_button,self.surface_button,self.joint_button,self.edit_button,self.next_button,self.exclude_button,self.dots_button):b.setEnabled(bool(self.store) and not active and not self.busy and not editing)
         self.individual_button.setEnabled(bool(self.store and self.store.doc.get('analysis')) and not active and not self.busy and not editing)
+        self.shared_xml.setEnabled(bool(self.store and self.store.doc.get('analysis')) and not self.busy);self.surface_xml.setEnabled(bool(self.store and self.surface) and not self.busy)
         self.cancel_button.setEnabled(self.busy);self.surface_cancel.setEnabled(self.busy)
         self.overlay_button.setEnabled(bool(self.store and self.surface) and not active and not self.busy and not editing)
         self.joint_overlay.setEnabled(bool(self.store and self.joint_result) and not active and not self.busy and not editing);self.joint_export.setEnabled(bool(self.joint_result) and not self.busy)

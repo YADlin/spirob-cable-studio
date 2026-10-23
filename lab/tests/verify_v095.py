@@ -56,6 +56,17 @@ try:
     try:
         write_joint_values(custom,ed.names,*ed.values(),out);mm=mujoco.MjModel.from_xml_path(str(out));assert np.isclose(mm.jnt_stiffness[2],.2*.9,rtol=1e-6)
     finally:out.unlink(missing_ok=True)
+    # Save preview model as XML: writes exactly what the preview uses (acknowledged values).
+    from unittest.mock import patch
+    w.preview=None;w.pending_comparison_change=False
+    w.parameters_applied(dict(kind='parameters',k2=.3,d2=.01,stiffness_ratio=.9,stiffness_exponent=1.,joint_k=list(k*1.5),joint_d=list(d*2),revision=9))
+    saved=custom.with_name('verify_preview_tmp.xml')
+    try:
+        with patch('interface.QFileDialog.getSaveFileName',return_value=(str(saved),'')):w.save_preview_xml()
+        mm=mujoco.MjModel.from_xml_path(str(saved));assert np.allclose(mm.jnt_stiffness[1:],k*1.5) and np.allclose(mm.dof_damping[1:],d*2),w.command_status.text()
+        assert 'beside the Lab model' in w.command_status.text() or 'Saved' in w.command_status.text()
+    finally:saved.unlink(missing_ok=True)
+    print('PASS Save preview model as XML writes the preview stiffness and damping',flush=True)
     w.preview=None;ed.close();w.close();app.processEvents()
     from interface import Preview
     pv=Preview(cfg,fit);pv.engine=Comparator(cfg,fit);got=[];pv.applied.connect(got.append)

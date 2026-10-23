@@ -34,6 +34,24 @@ def write_joint_values(xml_path, names, stiffness, damping, destination=None):
     return out
 
 
+def save_with_backup(model_path, names, stiffness, damping, target):
+    """Write joint values to target. Overwriting the Lab model keeps a timestamped backup.
+
+    Returns a one-line note for the user.
+    """
+    model_path = Path(model_path).resolve(); target = Path(target)
+    if target.resolve() == model_path:
+        backup = model_path.with_name(model_path.stem + datetime.now().strftime('_backup_%Y%m%d_%H%M%S.xml'))
+        shutil.copy2(model_path, backup)
+        note = f'Previous file kept as {backup.name}. The Lab reads it at the next start.'
+    elif target.resolve().parent != model_path.parent:
+        note = 'Keep it beside a meshes/ folder (or copy the meshes) so MuJoCo finds the meshes.'
+    else:
+        note = 'Saved beside the Lab model; meshes resolve.'
+    write_joint_values(model_path, names, stiffness, damping, target)
+    return note
+
+
 class JointEditor(QDialog):
     def __init__(self, host, model_path, apply_callback):
         super().__init__(host)
@@ -163,13 +181,7 @@ class JointEditor(QDialog):
             return
         target = Path(name)
         try:
-            if target.resolve() == self.model_path:
-                backup = self.model_path.with_name(self.model_path.stem + datetime.now().strftime('_backup_%Y%m%d_%H%M%S.xml'))
-                shutil.copy2(self.model_path, backup)
-                note = f' Previous file kept as {backup.name}.'
-            else:
-                note = ' Keep it beside the meshes folder so the meshes resolve.'
-            write_joint_values(self.model_path, self.names, k, d, target)
-            self.status.setText(f'Saved {target.name}.{note} The Lab model is read at start-up.')
+            note = save_with_backup(self.model_path, self.names, k, d, target)
+            self.status.setText(f'Saved {target.name}. {note}')
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self, 'Not saved', str(exc))

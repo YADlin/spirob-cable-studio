@@ -243,14 +243,17 @@ class Preview(QThread):
             if action == 'parameters':
                 self.vision_epoch+=1
                 self.engine.set_parameters(*values); refresh = True
+                k, d = self.engine.model.joint_values()
                 self.applied.emit(dict(kind='parameters', k2=self.engine.p['k2'], d2=self.engine.d2,
-                    stiffness_ratio=self.engine.p['stiffness_ratio'], stiffness_exponent=self.engine.p['stiffness_exponent'], revision=self.engine.revision))
+                    stiffness_ratio=self.engine.p['stiffness_ratio'], stiffness_exponent=self.engine.p['stiffness_exponent'],
+                    joint_k=k.tolist(), joint_d=d.tolist(), revision=self.engine.revision))
             elif action == 'joint_values':
                 self.vision_epoch+=1
                 self.engine.set_joint_values(*values); refresh = True
+                k, d = self.engine.model.joint_values()
                 self.applied.emit(dict(kind='parameters', k2=self.engine.p['k2'], d2=self.engine.d2,
                     stiffness_ratio=self.engine.p['stiffness_ratio'], stiffness_exponent=self.engine.p['stiffness_exponent'],
-                    joint_values=True, revision=self.engine.revision))
+                    joint_values=True, joint_k=k.tolist(), joint_d=d.tolist(), revision=self.engine.revision))
             elif action == 'setup':
                 self.vision_epoch+=1
                 setup, reference = values if isinstance(values, tuple) else (values, None)
@@ -410,6 +413,7 @@ class Window(QMainWindow):
             self.startup_setup_warning = 'Saved alignment could not be loaded; supplied calibration is in memory: '+str(exc)
         self.comparison_setup = engine.setup()
         self.current_d2 = engine.d2
+        self.preview_joint_values = tuple(v.tolist() for v in engine.model.joint_values())
         self.fit['candidate']['parameters'].update(stiffness_ratio=engine.p['stiffness_ratio'],
                                                   stiffness_exponent=engine.p['stiffness_exponent'])
         self.supplied_setup = Comparator({k:v for k,v in config.items() if k!='comparison_setup'},fit).setup()
@@ -625,6 +629,9 @@ class Window(QMainWindow):
         profile_controls.addWidget(profile_note,2,0,1,2);form.addWidget(self.profile_panel)
         self.profile_panel.setVisible(False);self.profile_edit.toggled.connect(self.profile_panel.setVisible)
         self.applied_label=StatusLabel('Simulation parameters: waiting for comparison',3);form.addWidget(self.applied_label)
+        self.save_preview_button=QPushButton('Save preview model as XML…');form.addWidget(self.save_preview_button)
+        self.save_preview_button.setToolTip('Writes the stiffness and damping the MuJoCo preview is using right now (after Apply / Apply selection) into an XML.')
+        self.save_preview_button.clicked.connect(self.save_preview_xml)
         sweep_controls=QGridLayout();form.addLayout(sweep_controls)
         self.scan_min=self.number(.02,.001,10.,6);self.scan_max=self.number(3.,.001,10.,6);self.scan_count=QSpinBox();self.scan_count.setRange(3,201);self.scan_count.setValue(31)
         for col,(label,box) in enumerate([('Minimum k₂',self.scan_min),('Maximum k₂',self.scan_max),('Grid samples',self.scan_count)]):
@@ -651,6 +658,7 @@ class Window(QMainWindow):
         sweep_actions=QHBoxLayout();right.addLayout(sweep_actions)
         self.best_button=QPushButton('Select lowest J');self.best_button.clicked.connect(self.select_best);sweep_actions.addWidget(self.best_button)
         self.apply_scan_button=QPushButton('Apply selection');self.apply_scan_button.clicked.connect(self.apply_sweep);sweep_actions.addWidget(self.apply_scan_button)
+        self.save_scan_xml=QPushButton('Save preview XML…');self.save_scan_xml.setToolTip('After Apply selection: save the stiffness the MuJoCo preview now uses.');self.save_scan_xml.clicked.connect(self.save_preview_xml);sweep_actions.addWidget(self.save_scan_xml)
         self.save_scan_button=QPushButton('Save sweep…');self.save_scan_button.clicked.connect(self.save_sweep);sweep_actions.addWidget(self.save_scan_button)
         self.capture_pose_button=QPushButton('Save pose screenshot + J + k₂ sweep…');right.addWidget(self.capture_pose_button);self.capture_pose_button.clicked.connect(self.save_pose)
         self.capture_pose_button.setToolTip('Exports the exact frozen image used for the completed sweep, with overlays and companion data.')
@@ -806,6 +814,7 @@ class Window(QMainWindow):
         self.pending_comparison_change=False
         if message['kind']=='parameters':
             self.current_d2=message['d2']
+            if message.get('joint_k') is not None:self.preview_joint_values=(list(message['joint_k']),list(message['joint_d']))
             self.fit['candidate']['parameters'].update({k:message[k] for k in ('k2','stiffness_ratio','stiffness_exponent') if k in message})
             self.applied_label.setText(self.parameter_text(message,'Simulation acknowledged'))
         elif message['kind']=='vision_method':
@@ -1049,6 +1058,22 @@ class Window(QMainWindow):
             return f"{prefix}: per-joint values; k₂ = {values['k2']:.7g}; d₂ = {values['d2']:.7g}"
         return (f"{prefix}: k₂ = {values['k2']:.7g}; d₂ = {values['d2']:.7g}; "
                 f"r = {ratio:.7g}; b = {exponent:.7g}")
+
+    def save_preview_xml(self):
+        from datetime import datetime
+        from joint_editor import save_with_backup
+        if self.pending_comparison_change:
+            QMessageBox.information(self,'Preview still updating','Wait until the simulation acknowledges the last Apply, then save.');return
+        k,d=self.preview_joint_values
+        model=Path(self.config['model']).resolve()
+        suggestion=model.with_name(f"spirob_robot_k2_{k[0]:.4g}_{datetime.now().strftime('%Y%m%d_%H%M')}.xml")
+        name,_=QFileDialog.getSaveFileName(self,'Save the MuJoCo preview stiffness/damping as XML',str(suggestion),'MuJoCo XML (*.xml)')
+        if not name:return
+        try:
+            names=[f'j_{i:03d}' for i in range(2,len(k)+2)]
+            note=save_with_backup(model,names,k,d,name)
+            self.command_status.setText(f'Saved {Path(name).name}: k₂ = {k[0]:.5g}, d₂ = {d[0]:.5g} and every other joint as previewed. {note}')
+        except (OSError,ValueError) as exc:QMessageBox.warning(self,'XML not saved',str(exc))
 
     def open_joint_editor(self):
         from joint_editor import JointEditor
