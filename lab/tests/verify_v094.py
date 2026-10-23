@@ -18,7 +18,7 @@ from interface import Window,QApplication,recorded_packet
 from spirob_analysis.fitting import predict
 from spirob_analysis.model import SpiRobModel
 
-XML='model/new_20261013/spirob_robot.xml'
+XML='model/spirob_robot.xml'
 cfg=json.loads(Path('config.json').read_text());cfg['model']=XML
 fit=json.loads(Path('calibration/new_model_initial.json').read_text());engine=Comparator(cfg,fit)
 def row(x=0):return dict(mode='Difference',x=x,y=227.353,s1=1,s2=1,steps=1,label='syn')
@@ -82,4 +82,13 @@ with tempfile.TemporaryDirectory() as td:
         at=widget.mapTo(d,widget.rect().topLeft());assert at.x()>=0 and at.y()>=0 and at.x()+widget.width()<=d.width() and at.y()+widget.height()<=d.height()
     d.close();w.close();app.processEvents()
     print('PASS GUI: Joints + transmission tab fits, reloads and draws',flush=True)
+# 4. Model check: the Lab XML matches the horizontal rig; a hanging (vertical) XML is refused.
+from model_check import check_model,check_config
+ok,lines=check_config();assert ok,lines
+text=Path(XML).read_text().replace('<body name="robot_base" pos="0.0 0.0 0.09" euler="-1.5708 0 0">','<body name="robot_base" pos="0.0 0.0 0.09">')
+bad=Path(XML).with_name('verify_vertical_tmp.xml');bad.write_text(text)
+try:
+    ok,lines=check_model(bad);assert not ok and any(l.startswith('FAIL all hinge axes vertical') for l in lines),lines
+finally:bad.unlink()
+print('PASS model check: horizontal plane at 90 mm accepted, vertical XML refused',flush=True)
 print('PASS all v0.9.4 joint/transmission checks',flush=True)

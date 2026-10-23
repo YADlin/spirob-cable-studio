@@ -1,5 +1,17 @@
 # Changes
 
+## SpiRob Lab 0.9.1 + one model folder and a rig-orientation check
+
+- `lab/model/` now holds a single model: `spirob_robot.xml` + `meshes/` (the 13-Oct print,
+  horizontal `robot_base` at z = 0.09 m). The dated `model/new_20261013/` folder and the
+  previous robot's XML are removed. To use another print, replace these files.
+- `model_check.py`: checks that the XML matches the rig — gravity along −Z, all hinge axes
+  vertical (bending in the horizontal plane), chain flat at rest, plane height
+  `model_check.plane_height_m` ± tolerance (config.json), stiff base clamp, two cable actuators.
+  Runs at Lab start-up (blocking dialog on failure), in `setup.py check`, and by hand:
+  `python model_check.py [file.xml]`.
+- Demo mode now uses the same model; its bundled photos show the previous robot.
+
 ## SpiRob Lab 0.9.1 + dots in the point editor, joint stiffness + cable transmission fit
 
 - **Point editor (campaign and main window):** opening an image auto-places the marker

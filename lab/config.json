@@ -1,5 +1,6 @@
 {
-  "model": "model/new_20261013/spirob_robot.xml",
+  "model": "model/spirob_robot.xml",
+  "model_check": {"plane_height_m": 0.09, "height_tolerance_m": 0.005, "flatness_tolerance_m": 0.001},
   "session": "data/quasistatic_review.zip",
   "fit_steps": [
     1,

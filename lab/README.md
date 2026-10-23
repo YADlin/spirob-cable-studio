@@ -20,7 +20,9 @@ Read [the 0.9.0 guide](docs/UPDATE_0_9_0.md) before running the new 21-joint mod
 
 Campaigns now require **Simulate / review → Approve → Start approved campaign**. A reproducible random generator provides selectable ranges, speeds and pose counts. Preview shows the MuJoCo backbone, actual tendon lengths and contact warnings. It never commands hardware. The approved expanded plan is reused for acquisition.
 
-The installer preserves the previous model/calibration and writes a backup. **Run `python3 setup.py deploy` when first upgrading the runtime to 0.9.0** to send the changed motion profile and jog support to WSL. Existing photographs and runs are retained. The old recorded demo below still uses the old model.
+The installer preserves the previous model/calibration and writes a backup. **Run `python3 setup.py deploy` when first upgrading the runtime to 0.9.0** to send the changed motion profile and jog support to WSL. Existing photographs and runs are retained. The recorded demo below uses the current model with photographs of the previous robot.
+
+**Model files.** `model/spirob_robot.xml` and `model/meshes/` are the only model. To use another print, replace these files (keep the names). `python model_check.py` confirms the XML matches the rig: horizontal bending plane, gravity along −Z, plane height from `config.json → model_check`. The Lab runs the same check at start-up.
 
 ## Start with the recorded example
 
