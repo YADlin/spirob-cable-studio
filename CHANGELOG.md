@@ -1,5 +1,14 @@
 # Changes
 
+## SpiRob Lab 0.9.1 + save the previewed model as XML
+
+- **Save preview model as XML…** (Fit / capture) and **Save preview XML…** (beside *Apply selection*
+  in the k₂ sweep): writes the stiffness and damping the MuJoCo preview is using right now.
+- Campaign: **Save XML at shared k₂…** (shared k₂ tab) and **Save XML at minimum…** (k₂ × ratio tab);
+  *Export fitted XML…* already existed in Joints + transmission.
+- Default location is beside `model/spirob_robot.xml` (meshes resolve). Choosing the Lab model
+  itself overwrites it and keeps a timestamped backup.
+
 ## SpiRob Lab 0.9.1 + hand-edited per-joint stiffness and damping
 
 - The Lab now accepts an XML whose joint stiffness/damping do not follow the exponential
