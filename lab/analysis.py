@@ -44,7 +44,16 @@ class Comparator:
         self.d2 = self.model.d2
         self.p.setdefault('stiffness_ratio', self.model.rk)
         self.p.setdefault('stiffness_exponent', 1.)
-        self.model.set_stiffness_profile(self.p['stiffness_ratio'], self.p['stiffness_exponent'])
+        if self.p.get('joint_stiffness') is not None:
+            self.set_joint_values(self.p['joint_stiffness'], self.p['joint_damping'], count=False)
+        elif not self.model.xml_exponential or self.p.get('stiffness_profile') == 'xml':
+            # Hand-edited XML: use its per-joint values exactly, not the calibration's exponential law.
+            self.model.use_xml_profile()
+            self.p.update(stiffness_profile='xml', k2=self.model.k2, joint_weights=self.model.k_weights.tolist())
+            self.d2 = self.model.d2
+        else:
+            self.model.set_stiffness_profile(self.p['stiffness_ratio'], self.p['stiffness_exponent'])
+            self.p['stiffness_profile'] = 'exponential'
         self.revision = 0
         self.session = None
         self.history = deque()
@@ -61,13 +70,40 @@ class Comparator:
         self.virtual_history.clear()
         self.dynamic_t = None
 
+    def set_joint_values(self, stiffness, damping, count=True):
+        """Per-joint stiffness/damping for j_002 … j_N (e.g. from the joint editor or a joint fit)."""
+        k2, d2 = self.model.set_joint_values(stiffness, damping)
+        self.p.update(k2=k2, stiffness_profile='joints', joint_weights=self.model.k_weights.tolist(),
+                      joint_stiffness=[float(v) for v in stiffness], joint_damping=[float(v) for v in damping])
+        self.d2 = d2
+        if count:
+            self.revision += 1
+            self.history.clear()
+            self.virtual_history.clear()
+
     def set_parameters(self, k2, d2, stiffness_ratio=None, stiffness_exponent=None):
         if not np.isfinite(k2) or not .001 <= k2 <= 10 or not np.isfinite(d2) or not 0 <= d2 <= 2:
             raise ValueError('Use 0.001 <= k2 <= 10 and 0 <= d2 <= 2 in SI units')
+        if stiffness_ratio is None and self.p.get('stiffness_profile') in ('xml', 'joints'):
+            # Keep the per-joint shape; k2 and d2 scale the whole profile.
+            if self.p.get('joint_stiffness') is not None:
+                ks = np.asarray(self.p['joint_stiffness']) * (k2 / self.p['joint_stiffness'][0])
+                ds = np.asarray(self.p['joint_damping']) * (d2 / self.p['joint_damping'][0]) if self.p['joint_damping'][0] > 0 else np.asarray(self.p['joint_damping'])
+                self.set_joint_values(ks, ds)
+                return
+            self.p.update(k2=float(k2))
+            self.d2 = float(d2)
+            self.model.scale(k2, d2)
+            self.revision += 1
+            self.history.clear()
+            self.virtual_history.clear()
+            return
         ratio = self.p['stiffness_ratio'] if stiffness_ratio is None else stiffness_ratio
         exponent = self.p['stiffness_exponent'] if stiffness_exponent is None else stiffness_exponent
         self.model.set_stiffness_profile(ratio, exponent)
-        self.p.update(k2=float(k2), stiffness_ratio=float(ratio), stiffness_exponent=float(exponent))
+        for key in ('joint_weights', 'joint_stiffness', 'joint_damping'):
+            self.p.pop(key, None)
+        self.p.update(k2=float(k2), stiffness_ratio=float(ratio), stiffness_exponent=float(exponent), stiffness_profile='exponential')
         self.d2 = float(d2)
         self.model.scale(k2, d2)
         self.revision += 1

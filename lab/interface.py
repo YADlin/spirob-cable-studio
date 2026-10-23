@@ -245,6 +245,12 @@ class Preview(QThread):
                 self.engine.set_parameters(*values); refresh = True
                 self.applied.emit(dict(kind='parameters', k2=self.engine.p['k2'], d2=self.engine.d2,
                     stiffness_ratio=self.engine.p['stiffness_ratio'], stiffness_exponent=self.engine.p['stiffness_exponent'], revision=self.engine.revision))
+            elif action == 'joint_values':
+                self.vision_epoch+=1
+                self.engine.set_joint_values(*values); refresh = True
+                self.applied.emit(dict(kind='parameters', k2=self.engine.p['k2'], d2=self.engine.d2,
+                    stiffness_ratio=self.engine.p['stiffness_ratio'], stiffness_exponent=self.engine.p['stiffness_exponent'],
+                    joint_values=True, revision=self.engine.revision))
             elif action == 'setup':
                 self.vision_epoch+=1
                 setup, reference = values if isinstance(values, tuple) else (values, None)
@@ -600,13 +606,16 @@ class Window(QMainWindow):
         self.dots_box.setChecked(self.config.get('vision_method')=='dots');form.addWidget(self.dots_box)
         self.dots_box.toggled.connect(self.change_vision_method)
         parameters=QGridLayout();form.addLayout(parameters)
-        self.kbox=self.number(fit['candidate']['parameters']['k2'],.001,10.,7)
+        self.kbox=self.number(engine.p['k2'],.001,10.,7)
         from spirob_analysis.model import SpiRobModel
-        self.dbox=self.number(SpiRobModel(config['model']).d2,0.,2.,7)
+        self.dbox=self.number(engine.d2,0.,2.,7)
         parameters.addWidget(QLabel('k₂ [N m/rad]'),0,0);parameters.addWidget(self.kbox,0,1)
         parameters.addWidget(QLabel('d₂ [N m s/rad]'),1,0);parameters.addWidget(self.dbox,1,1)
         self.apply_button=QPushButton('Apply to simulation');parameters.addWidget(self.apply_button,2,0,1,2)
-        self.profile_edit=QCheckBox('Edit exponential stiffness profile (advanced)');form.addWidget(self.profile_edit)
+        self.joint_editor_button=QPushButton('Edit each joint k and d…');form.addWidget(self.joint_editor_button)
+        self.joint_editor_button.setToolTip('Per-joint stiffness and damping; Apply shows the MuJoCo backbone over the camera.')
+        self.joint_editor_button.clicked.connect(self.open_joint_editor);self.joint_editor=None
+        self.profile_edit=QCheckBox('Use exponential stiffness profile (replaces per-joint values)');form.addWidget(self.profile_edit)
         self.profile_panel=QWidget();profile_controls=QGridLayout(self.profile_panel)
         self.rbox=self.number(engine.p['stiffness_ratio'],.5,1.5,15)
         self.bbox=self.number(engine.p['stiffness_exponent'],0.,3.,10)
@@ -1036,15 +1045,38 @@ class Window(QMainWindow):
         fallback=self.fit['candidate']['parameters']
         ratio=values.get('stiffness_ratio',fallback['stiffness_ratio'])
         exponent=values.get('stiffness_exponent',fallback['stiffness_exponent'])
+        if values.get('joint_values') or ratio is None:
+            return f"{prefix}: per-joint values; k₂ = {values['k2']:.7g}; d₂ = {values['d2']:.7g}"
         return (f"{prefix}: k₂ = {values['k2']:.7g}; d₂ = {values['d2']:.7g}; "
                 f"r = {ratio:.7g}; b = {exponent:.7g}")
+
+    def open_joint_editor(self):
+        from joint_editor import JointEditor
+        if self.joint_editor is None:
+            self.joint_editor=JointEditor(self,self.config['model'],self.apply_joint_values)
+        self.joint_editor.show();self.joint_editor.raise_()
+
+    def apply_joint_values(self, stiffness, damping):
+        if self.campaign_active():
+            raise ValueError('Campaign parameters are frozen. Stop the campaign before changing them.')
+        if not self.preview:
+            raise ValueError('Simulation is not running yet.')
+        self.pending_comparison_change=True
+        self.preview.requests.put(('joint_values',([float(v) for v in stiffness],[float(v) for v in damping])))
+        self.kbox.blockSignals(True);self.kbox.setValue(float(stiffness[0]));self.kbox.blockSignals(False)
+        self.dbox.blockSignals(True);self.dbox.setValue(float(damping[0]));self.dbox.blockSignals(False)
+        self.profile_edit.setChecked(False)
+        self.latest=None;self.last_analysis=None;self.last_model=self.last_vision=None;self.last_plot=0.
+        self.applied_label.setText('Applying per-joint values… waiting for simulation acknowledgement')
 
     def apply_parameters(self):
         if self.campaign_active():
             self.command_status.setText("Campaign parameters are frozen. Stop the campaign before changing them.");return
         if self.preview:
             self.pending_comparison_change=True
-            self.preview.requests.put(('parameters', (self.kbox.value(), self.dbox.value(),self.rbox.value(),self.bbox.value())))
+            exponential=self.profile_edit.isChecked()
+            self.preview.requests.put(('parameters', (self.kbox.value(), self.dbox.value(),
+                self.rbox.value() if exponential else None,self.bbox.value() if exponential else None)))
             self.latest = None; self.last_analysis = None
             self.last_model=self.last_vision=None
             self.last_plot=0.
