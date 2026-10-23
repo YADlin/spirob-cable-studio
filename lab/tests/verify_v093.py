@@ -12,7 +12,7 @@ from PIL import Image
 from spirob_analysis.model import SpiRobModel
 from dot_tracking import measure_dots,expected_spacing_px,LINK_IDS,DotTracker,detect_dots
 
-XML='model/new_20261013/spirob_robot.xml'
+XML='model/spirob_robot.xml'
 
 
 def render(model,D,ppm=4178.,T=(1040.,100.),rot=0.,seed=0,drop=()):

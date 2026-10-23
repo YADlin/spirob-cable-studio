@@ -111,6 +111,10 @@ def main():
         from diagnostics import collect
         collect(ROOT, rig)
     elif args.command == 'check':
+        from model_check import check_config
+        model_ok, model_lines = check_config(ROOT/'config.json')
+        print('Model XML check:\n  ' + '\n  '.join(model_lines))
+        if not model_ok: print('WARNING: model/spirob_robot.xml does not match the horizontal rig.')
         profile=None
         for path in (ROOT/'config.json',ROOT/'lab.local.json'):
             if path.is_file():profile=json.loads(path.read_text()).get('motion_profile',profile)

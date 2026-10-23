@@ -27,6 +27,17 @@ def main():
     fit = json.loads(Path(config.get('fit','calibration/pilot_fit.json')).read_text())
     rig = None if args.demo else json.loads(rig_path.read_text())
     application = QApplication([])
+    if not args.demo:
+        from model_check import check_model
+        ok, lines = check_model(config['model'], config.get('model_check'))
+        if not ok:
+            from PySide6.QtWidgets import QMessageBox
+            answer = QMessageBox.critical(None, 'Model XML does not match the rig',
+                'The model in config.json does not describe the horizontal rig:\n\n' + '\n'.join(lines) +
+                '\n\nFits and training with this XML will be wrong. Continue anyway?',
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if answer != QMessageBox.Yes:
+                raise SystemExit('Stopped: fix model/spirob_robot.xml (see python model_check.py).')
     window = Window(config, fit, rig, args.demo)
     window.show()
     application.exec()
