@@ -70,6 +70,7 @@ class Preview(QThread):
         self.reader_error = None
         self.tracker = None
         self.analysis_mode = config.get('analysis_mode','vision')
+        self.vision_method = config.get('vision_method','silhouette')
         self.vision_epoch = 0
         self.vision = None
         self.last_vision_message = 'Image processing started; camera and MuJoCo continue independently.'
@@ -224,6 +225,11 @@ class Preview(QThread):
     def configure_tracker(self, reference=None):
         from joint_tracking import ManualJointTracker
         profile = self.engine.profile
+        if self.analysis_mode == 'vision' and self.vision_method == 'dots':
+            from dot_tracking import DotTracker, expected_spacing_px
+            self.tracker = DotTracker(expected_spacing_px(self.engine.model, self.engine.p['pixels_per_m']),
+                                      self.config.get('marker_base_px'))
+            return
         if self.analysis_mode != 'vision' or not profile or profile.get('measurement_mode') != 'manual_joints':
             self.tracker = None
         elif reference is not None or self.tracker is None or self.tracker.profile['calibration_id'] != profile['calibration_id']:
@@ -254,6 +260,12 @@ class Preview(QThread):
                 if self.vision:self.vision.clear_pending()
                 refresh=True
                 self.applied.emit(dict(kind='analysis_mode',mode=values,revision=self.engine.revision))
+            elif action == 'vision_method':
+                self.vision_method=values;self.tracker=None
+                self.vision_epoch+=1;self.engine.history.clear();self.configure_tracker()
+                if self.vision:self.vision.clear_pending()
+                refresh=True
+                self.applied.emit(dict(kind='vision_method',method=values,revision=self.engine.revision))
 
 
 class NullLog:
@@ -583,6 +595,10 @@ class Window(QMainWindow):
         self.analysis_mode_box=QComboBox();self.analysis_mode_box.addItem('Image estimation — live green backbone','vision');self.analysis_mode_box.addItem('Manual points — no image processing','manual')
         self.analysis_mode_box.setCurrentIndex(int(self.analysis_mode=='manual'));form.addWidget(self.analysis_mode_box)
         self.analysis_mode_box.currentIndexChanged.connect(self.change_analysis_mode)
+        self.dots_box=QCheckBox('Marker dots — one black dot per element (E1)')
+        self.dots_box.setToolTip('Image estimation reads the black dot at each element centre (link_002…link_021) instead of the silhouette. Base element: two dots.')
+        self.dots_box.setChecked(self.config.get('vision_method')=='dots');form.addWidget(self.dots_box)
+        self.dots_box.toggled.connect(self.change_vision_method)
         parameters=QGridLayout();form.addLayout(parameters)
         self.kbox=self.number(fit['candidate']['parameters']['k2'],.001,10.,7)
         from spirob_analysis.model import SpiRobModel
@@ -658,6 +674,7 @@ class Window(QMainWindow):
         preferences['motion_profile']=self.motion_profile
         preferences['theme']=self.theme
         preferences['analysis_mode']=self.analysis_mode
+        preferences['vision_method']=self.config.get('vision_method','silhouette')
         if include_setup:preferences['comparison_setup']=copy.deepcopy(self.comparison_setup)
         temporary=path.with_suffix('.tmp')
         temporary.write_text(json.dumps(preferences,indent=2,allow_nan=False)+'\n');temporary.replace(path)
@@ -782,6 +799,8 @@ class Window(QMainWindow):
             self.current_d2=message['d2']
             self.fit['candidate']['parameters'].update({k:message[k] for k in ('k2','stiffness_ratio','stiffness_exponent') if k in message})
             self.applied_label.setText(self.parameter_text(message,'Simulation acknowledged'))
+        elif message['kind']=='vision_method':
+            self.command_status.setText('Image estimation now reads the black marker dots.' if message['method']=='dots' else 'Image estimation now uses the silhouette centreline.')
         elif message['kind']=='analysis_mode':
             self.command_status.setText('Manual points mode: image processing is off.' if message['mode']=='manual' else 'Live image estimation enabled.')
         else:
@@ -872,6 +891,14 @@ class Window(QMainWindow):
         linked=self.same_speed.isChecked()
         if linked:self.length_speeds[1].setValue(self.length_speeds[0].value())
         self.length_speeds[1].setEnabled(not linked)
+
+    def change_vision_method(self, checked):
+        method='dots' if checked else 'silhouette'
+        self.config['vision_method']=method
+        self.last_vision=None;self.history.clear()
+        if self.preview:self.preview.requests.put(('vision_method',method))
+        try:self.save_preferences()
+        except (OSError,ValueError) as exc:self.command_status.setText('Method changed; preferences were not saved: '+str(exc))
 
     def change_analysis_mode(self, *_):
         self.analysis_mode=self.analysis_mode_box.currentData()

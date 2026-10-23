@@ -18,7 +18,7 @@ def main():
     config = json.loads(Path('config.json').read_text())
     if Path('lab.local.json').is_file():
         preferences=json.loads(Path('lab.local.json').read_text())
-        for key in ('theme','comparison_setup','analysis_mode','motion_profile'):
+        for key in ('theme','comparison_setup','analysis_mode','motion_profile','vision_method','marker_base_px'):
             if key in preferences:config[key]=preferences[key]
     if args.demo:
         # The bundled photographs belong to the previous robot, not the new XML.

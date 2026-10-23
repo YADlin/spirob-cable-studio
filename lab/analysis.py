@@ -129,6 +129,10 @@ class Comparator:
     def observation(self, measured, lengths, packet, layout=None):
         if measured is None: return None
         if measured.get('score_error'): raise ValueError(measured['score_error'])
+        if measured.get('measurement_mode') == 'marker_dots':
+            # Dots carry their own element identities; no manual profile applies.
+            displacement = (lengths-np.asarray(packet['rest_lengths_mm']))[self.mapping]*self.mapping_signs
+            return dict(copy.deepcopy(measured), displacement_mm=displacement.tolist())
         if self.profile and self.profile.get('measurement_mode') == 'manual_joints' and measured.get('calibration_id') != self.profile['calibration_id']:
             raise ValueError('Manual joint tracking is unavailable; capture and Apply joints again.')
         if self.profile and measured.get('image_shape') and list(measured['image_shape']) != self.profile['image_shape']:

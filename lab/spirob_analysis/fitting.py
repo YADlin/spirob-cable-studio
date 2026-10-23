@@ -12,7 +12,10 @@ from scipy.optimize import least_squares
 
 def predict(model, observation, parameters):
     p = parameters
-    model.set_stiffness_profile(p.get('stiffness_ratio', model.rk), p.get('stiffness_exponent', 1.))
+    if p.get('joint_weights') is not None:
+        model.set_stiffness_weights(p['joint_weights'])
+    else:
+        model.set_stiffness_profile(p.get('stiffness_ratio', model.rk), p.get('stiffness_exponent', 1.))
     ctrl = model.controls(observation['displacement_mm'], p['mean_offset_mm'], p['difference_offset_mm'])
     state = model.equilibrium(ctrl, p['k2'])
     curve = state['curve_m']

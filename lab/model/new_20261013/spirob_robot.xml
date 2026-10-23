@@ -64,6 +64,7 @@
     <light name="light2" diffuse="1 1 1" active="true" pos="-0.01 -0.5 0.5" dir="0 0 -1" />
     <light name="light3" diffuse="1 1 1" active="true" pos="0 -0.1 1.5" dir="0 0 -1" />
     <geom type="plane" size="2 2 0.05" rgba="0.9 0.9 0.9 1" />
+    <body name="robot_base" pos="0.0 0.0 0.09" euler="-1.5708 0 0">
     <body name="link_001" pos="0.0 0.0 0.23" quat="0.0 0.0 -1.0 0.0">
       <inertial mass="0.0073492843628675131" pos="1.358544314586958e-20 -1.2792739133183404e-18 0.0055109787935385211" quat="0 0.70710678118654891 0 0.70710678118654891" diaginertia="7.4886899238912016e-07 6.3928946793395491e-07 2.6196489324198076e-07" />
       <joint name="j_001" type="hinge" axis="0 1 0" range="-3.141592653589793 3.141592653589793" damping="50" stiffness="100" />
@@ -274,6 +275,7 @@
           </body>
         </body>
       </body>
+    </body>
     </body>
   </worldbody>
   <tendon>

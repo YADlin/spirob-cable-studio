@@ -1,5 +1,54 @@
 # Changes
 
+## SpiRob Lab 0.9.1 + dots in the point editor, joint stiffness + cable transmission fit
+
+- **Point editor (campaign and main window):** opening an image auto-places the marker
+  dots as **element centres** (link_002…link_021) with the green line; edit any point.
+  **Auto-place marker dots** re-runs it (e.g. on poses you marked as joints earlier).
+- Dot tracker: faint second tier for small distal dots near the predicted position;
+  partial chains (≥ 12 elements) are returned with the missing elements unchecked.
+- Campaign tab **Joints + transmission**: fit every joint j_002…j_021 independently, or the
+  exponential profile, together with a per-cable **transmission gain/offset** (share of
+  encoder cable travel that bends the body). Antagonist treated as slack by default.
+  Optimiser: CMA-ES (PACE-style, global) then least squares, or least squares only.
+  Shows k_i/k₂ with σ, per-pose error, overlays, and exports an XML with fitted stiffness.
+- `SpiRobModel.set_stiffness_weights`, `predict(..., joint_weights=...)`, `cmaes.py`
+  (dependency-free CMA-ES). Verification: lab/tests/verify_v094.py.
+
+## SpiRob Lab 0.9.1 + E1 marker dots and horizontal 13-Oct model
+
+- **Model:** `lab/model/new_20261013/spirob_robot.xml` is wrapped in `robot_base`
+  (pos 0 0 0.09, euler −1.5708 0 0), exactly as `lab/model/spirob_robot.xml`. The robot
+  now bends in the horizontal plane; gravity no longer acts as in-plane stiffness.
+  Lab copy only. Campaigns keep their own frozen model copy.
+- **Marker dots (E1):** `dot_tracking.py` finds the black dot at each element centre
+  (two on the base element), orders them base → tip and reports link_002…link_021 as
+  `centres` landmarks. Exposure-relative thresholds; up to two missing dots skipped.
+- Live: **Marker dots** checkbox under *Measurement mode* (Image estimation) replaces the
+  silhouette centreline. Saved in lab.local.json (`vision_method`).
+- Campaign: **Measure marker dots** on the poses tab measures saved photos, fills poses
+  without points (or replaces yours if ticked), writes dots_overlay.jpg per pose and
+  dots_summary.csv comparing dots with your manual element centres.
+- k₂ × ratio tab: **Use current Lab model** (default on) scores old campaigns with the
+  corrected model instead of the campaign's frozen copy.
+- Verification: lab/tests/verify_v093.py.
+
+## SpiRob Lab 0.9.1 + campaign stiffness-ratio surface
+
+- New campaign tab **k₂ × stiffness ratio**: sweeps k₂ (log grid) and the adjacent
+  stiffness ratio r in kᵢ = k₂·r^(i−2) over every included pose, using the same
+  frozen alignment, offsets and equal-weight J as the shared k₂ fit.
+- A grid point counts only if every pose converges without contact. Shows a J/RMSE
+  map with the minimum and the campaign's own (k₂, r), plus best-k₂-per-ratio valley.
+- Optional cable kp override (position-servo gain = the model's only cable compliance),
+  recorded in the result. k₂ is reported as relative to kp and gravity.
+- Saves fit_surface.json/.csv/.png in the campaign folder; fit_results.json untouched.
+  Stale-result warning if points change afterwards. Verification: lab/tests/verify_v092.py.
+- Valley plot legend (minimum line, campaign ratio, k₂ axis, k₂ grid-floor marker).
+- Optional image-scale (px/m) override, recorded in the result.
+- **Overlay on pose photos**: draws physical joints, the surface minimum and the campaign
+  (k₂, r) on each pose's frame.jpg → surface_overlay_pose_NNN.png.
+
 ## 3.1.0 — paired length controls
 
 - Replace separate A/D apply actions with one target pair, mean/full-difference
