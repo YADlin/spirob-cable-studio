@@ -1,5 +1,17 @@
 # Changes
 
+## SpiRob Lab 0.9.1 + hand-edited per-joint stiffness and damping
+
+- The Lab now accepts an XML whose joint stiffness/damping do not follow the exponential
+  law (previous start-up error: "Uploaded stiffness weights are not exponential"). Such an
+  XML is used exactly as written; k₂/d₂ in the main window scale the whole per-joint profile.
+- **Edit each joint k and d…** (main window, Fit/capture): table of j_002…j_021 stiffness and
+  damping; Fill exponential, Scale k, d ∝ √k, Load joint_fit.csv, Reset to XML,
+  **Apply to simulation** (red MuJoCo backbone updates over the live camera) and
+  **Save to XML…** (Lab model with a timestamped backup, or a new file).
+- The exponential ratio box is applied only when *Use exponential stiffness profile* is ticked.
+- Verification: lab/tests/verify_v095.py.
+
 ## SpiRob Lab 0.9.1 + one model folder and a rig-orientation check
 
 - `lab/model/` now holds a single model: `spirob_robot.xml` + `meshes/` (the 13-Oct print,

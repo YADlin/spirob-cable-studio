@@ -29,10 +29,12 @@ class SpiRobModel:
         self.d_weights = self.original_d[1:] / self.d2
         self.rk = float(np.median(self.k_weights[1:] / self.k_weights[:-1]))
         self.rd = float(np.median(self.d_weights[1:] / self.d_weights[:-1]))
-        if not np.allclose(self.k_weights, self.rk ** np.arange(len(self.k_weights)), rtol=1e-8):
-            raise ValueError("Uploaded stiffness weights are not exponential; review the model adapter.")
-        if not np.allclose(self.d_weights, self.rd ** np.arange(len(self.d_weights)), rtol=1e-8):
-            raise ValueError("Uploaded damping weights are not exponential; review the model adapter.")
+        # A hand-edited XML may carry any per-joint values: keep them exactly.
+        self.xml_k_exponential = bool(np.allclose(self.k_weights, self.rk ** np.arange(len(self.k_weights)), rtol=1e-8))
+        self.xml_d_exponential = bool(np.allclose(self.d_weights, self.rd ** np.arange(len(self.d_weights)), rtol=1e-8))
+        self.xml_exponential = self.xml_k_exponential and self.xml_d_exponential
+        self.xml_k_weights = self.k_weights.copy()
+        self.xml_d_weights = self.d_weights.copy()
         self.stiffness_ratio, self.stiffness_exponent = self.rk, 1.
         self.qspring = m.qpos_spring.copy()
         mujoco.mj_forward(m, self.d)
@@ -81,6 +83,30 @@ class SpiRobModel:
             raise ValueError(f'Need {len(self.original_k)-1} positive joint stiffness weights.')
         self.k_weights = w / w[0]
         self.stiffness_ratio, self.stiffness_exponent = None, None
+
+    def use_xml_profile(self):
+        """Per-joint stiffness and damping exactly as written in the XML (scaled by k2, d2)."""
+        self.k_weights = self.xml_k_weights.copy()
+        self.d_weights = self.xml_d_weights.copy()
+        self.stiffness_ratio, self.stiffness_exponent = None, None
+
+    def set_joint_values(self, stiffness, damping):
+        """Absolute values for j_002 … j_N [N m/rad, N m s/rad]; joint 1 unchanged."""
+        k = np.asarray(stiffness, float); d = np.asarray(damping, float)
+        n = len(self.original_k) - 1
+        if k.shape != (n,) or d.shape != (n,) or not np.all(np.isfinite(k)) or not np.all(np.isfinite(d)):
+            raise ValueError(f'Need {n} finite stiffness and damping values (j_002 … j_{n+1:03d}).')
+        if np.any(k <= 0) or np.any(d < 0) or d[0] <= 0:
+            raise ValueError('Stiffness must be positive; damping non-negative (joint 2 damping positive).')
+        self.k_weights = k / k[0]
+        self.d_weights = d / d[0]
+        self.stiffness_ratio, self.stiffness_exponent = None, None
+        self.scale(k[0], d[0])
+        return float(k[0]), float(d[0])
+
+    def joint_values(self):
+        """Current j_002 … j_N stiffness and damping in the compiled model."""
+        return self.m.jnt_stiffness[1:].copy(), self.m.dof_damping[1:].copy()
 
     def scale(self, k2=None, d2=None):
         k2 = self.k2 if k2 is None else float(k2)
