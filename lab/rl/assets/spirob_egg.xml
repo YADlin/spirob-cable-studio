@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<mujoco model="SpiRob_Egg">
+<!-- Knockdown copy of ../spirob_egg.xml: colour changed only. -->
+<mujoco model="SpiRob_Egg_Knockdown">
   <compiler angle="radian" inertiafromgeom="true" autolimits="true" />
   <default>
-    <geom density="300" friction="1.2 0.05 0.005" rgba="0.97 0.93 0.80 1.0"
+    <geom density="300" friction="1.2 0.05 0.005" rgba="0.16 0.67 0.31 1"
           solref="0.01 1" solimp="0.9 0.95 0.05" contype="1" conaffinity="1" />
   </default>
   <worldbody>

@@ -6,9 +6,9 @@ The laptop owns the motors and recording. Version 0.9.1. This update has recorde
 
 **Start with the [Operating manual](docs/OPERATING_MANUAL.html)** for installation, daily use, setup jogs, individual/mean actuation, point inspection, recovery and shutdown. The same manual is available from the application.
 
-## RL egg knockdown (feature branch)
+## RL egg knockdown (contract v2)
 
-An **RL** tab runs an exported `spirob-mjlab` knockdown policy (camera + encoders only) with Dry run, Arm, Run episode, Stop / Hold and Return to start. Workstation-only; no WSL redeploy. Read [docs/RL_KNOCKDOWN.md](docs/RL_KNOCKDOWN.md) before arming.
+An **RL** tab runs an exported `spirob-mjlab` knockdown policy (camera + encoders only) that commands the cable difference D only, with a selectable speed ceiling (5/10/15 mm/s, scaled to each move), Dry run, Arm, Run episode, Auto-continue (human replaces the egg), Straighten and Stop / Hold. Requires `model/spirob_robot.xml` = the knockdown model (sha256 `fe7d13cd476a…`). Workstation-only; no WSL redeploy. Read [docs/RL_KNOCKDOWN.md](docs/RL_KNOCKDOWN.md) before arming.
 
 ## Mixed campaigns and return to start (0.9.1)
 

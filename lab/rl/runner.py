@@ -1,22 +1,24 @@
-"""RL egg-knockdown episode runner for the Lab (workstation side, GUI thread).
+"""RL egg-knockdown episode runner for the Lab (contract v2; workstation side, GUI thread).
 
-Modelled on campaign.CampaignRunner: it only sends acknowledged
-``independent`` moves through the existing motor owner and never enables,
+Sends only acknowledged 'independent' moves through the existing motor owner; never enables,
 references or retries. One decision =
 
-    observe (settled encoders + fresh frame) -> detect egg -> contract obs
-    -> NumpyPolicy -> contract transform -> physical mm -> send -> wait for hold
+  observe (settled encoders + fresh frame) -> egg detector -> contract obs (7)
+  -> NumpyPolicy -> difference target -> payouts -> physical mm, per-cable speed -> send -> wait for hold
 
-States: idle, observe, ack, moving, done (outcome set).
-Outcomes: SUCCESS, FAILURE_TIMEOUT, UNKNOWN (perception), ABORTED (operator Stop),
-          FAULT_* (infrastructure). Only SUCCESS counts as a knockdown.
+States: idle, observe, ack, moving, await_egg (human-in-the-loop), done.
+Outcomes: SUCCESS, FAILURE_TIMEOUT, UNKNOWN (egg not seen at the end), ABORTED, FAULT_*.
+
+Human-in-the-loop (auto-continue): after an episode the robot holds where it is. The next episode
+starts by itself when a new egg is detected, has been still for `still_s`, the whole image has
+been still for `still_s` (no hand moving), and the egg is inside the trained region and clear of
+the robot's current shape (pose table). After a non-success the egg must also have been moved.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import math
 import time
 import uuid
 from collections import deque
@@ -26,17 +28,18 @@ from pathlib import Path
 import numpy as np
 
 from rl import contract as C
+from rl.egg_vision import SceneStillness
 from rl.hardware_io import CableMap, CameraMap
 from rl.numpy_policy import NumpyPolicy
 
 LAB_DIR = Path(__file__).resolve().parents[1]
-START_TOLERANCE_M = 0.0010          # robot must be within 1 mm of neutral payout at episode start
-START_FRAMES = 5                    # stable egg detections required to start
+START_FRAMES = 5
 START_SPREAD_M = 0.002
 REGION_TOLERANCE_M = 0.005
-DETECTION_WAIT_S = 1.0              # missing egg for this long at a decision -> UNKNOWN
 SETTLE_WINDOW_S = 0.3
 ACK_TIMEOUT_S = 3.0
+LAB_MIN_SPEED_MM_S = 0.05
+RETRY_MOVE_M = 0.020          # after a non-success, the egg must be moved this far before auto-start
 
 
 def sha(path: Path) -> str:
@@ -44,7 +47,7 @@ def sha(path: Path) -> str:
 
 
 class PolicyBundle:
-    """A verified export folder from spirob-mjlab tools/knockdown/export_policy.py."""
+    """A verified export folder from spirob-mjlab tools/knockdown/export_policy.py (contract v2)."""
 
     def __init__(self, folder: str | Path, lab_model: Path | None = None):
         self.folder = Path(folder)
@@ -59,20 +62,26 @@ class PolicyBundle:
         if not m.get("parity", {}).get("passed"):
             problems.append("export parity check did not pass")
         lab_model = lab_model or LAB_DIR / "model" / "spirob_robot.xml"
-        if sha(lab_model) != m.get("lab_model_sha256"):
-            problems.append("policy was trained on a different robot model than lab/model/spirob_robot.xml")
+        if sha(lab_model) != m.get("source_model_sha256"):
+            problems.append("lab/model/spirob_robot.xml is not the model this policy was trained on "
+                            f"(expected sha256 {str(m.get('source_model_sha256'))[:12]}...)")
+        table_path = self.folder / "pose_table.json"
+        if not table_path.is_file() or sha(table_path) != m.get("pose_table_sha256"):
+            problems.append("pose_table.json missing or checksum mismatch")
         self.policy = NumpyPolicy(self.folder / "policy.npz")
-        if self.policy.obs_dim != C.DEFAULT.actor_dim or self.policy.act_dim != 2:
-            problems.append("policy input/output size does not match the contract")
+        if self.policy.obs_dim != C.DEFAULT.actor_dim or self.policy.act_dim != 1:
+            problems.append("policy input/output size does not match contract v2 (7 -> 1)")
         obs_p, act_p = self.folder / "parity_obs.npy", self.folder / "parity_actions.npy"
+        self.lab_parity_error = float("nan")
         if obs_p.is_file():
-            err = float(np.max(np.abs(self.policy(np.load(obs_p)) - np.load(act_p))))
-            if err > 1e-4:
-                problems.append(f"Lab-side parity error {err:.2e} exceeds 1e-4")
-            self.lab_parity_error = err
+            self.lab_parity_error = float(np.max(np.abs(self.policy(np.load(obs_p)) - np.load(act_p))))
+            if self.lab_parity_error > 1e-4:
+                problems.append(f"Lab-side parity error {self.lab_parity_error:.2e} exceeds 1e-4")
         if problems:
             raise ValueError("Policy rejected: " + "; ".join(problems))
         self.manifest = m
+        self.table = C.load_pose_table(table_path)
+        self.region = m.get("region", {"abs_u_m": (0.045, 0.125), "v_m": (0.040, 0.180)})
 
     def describe(self) -> str:
         return (f"{self.folder.name}: checkpoint {self.manifest['checkpoint_sha256'][:12]}, "
@@ -121,129 +130,171 @@ def _jsonable(x):
 
 
 class KnockdownRunner:
-    def __init__(self, bundle: PolicyBundle, cable: CableMap, camera: CameraMap, detector, rests_mm, limits: dict,
-                 send, log_root: Path, dry_run: bool = True, clock=time.monotonic, region=None):
-        self.bundle, self.cable, self.camera, self.detector = bundle, cable, camera, detector
+    def __init__(self, bundle: PolicyBundle, cable: CableMap, camera: CameraMap, egg_detector, pedestal_detector,
+                 rests_mm, limits: dict, send, log_root: Path, dry_run: bool = True, vmax_mm_s: float = 5.0,
+                 auto_continue: bool = False, clock=time.monotonic):
+        if vmax_mm_s not in (5.0, 10.0, 15.0):
+            raise ValueError("Cable speed ceiling must be 5, 10 or 15 mm/s")
+        self.bundle, self.cable, self.camera = bundle, cable, camera
+        self.egg_det, self.ped_det = egg_detector, pedestal_detector
         self.rests_mm, self.limits, self.send = tuple(rests_mm), limits, send
         self.log_root, self.dry_run, self.clock = Path(log_root), dry_run, clock
+        self.vmax_m_s = vmax_mm_s / 1000
+        self.auto_continue = auto_continue
         self.spec = C.DEFAULT
-        self.region = region or {"abs_u_m": (0.045, 0.105), "v_m": (0.055, 0.175)}
+        self.region = bundle.region
         self.state, self.outcome, self.message = "idle", None, "Load a policy, then Run episode"
         self.events = deque(maxlen=2000)
+        self.recent = deque(maxlen=60)
+        self.still = SceneStillness()
         self.log: EpisodeLog | None = None
-        self._check_contract_fits_limits()
+        self.episodes: list[dict] = []
+        self.last_start = None
+        self.camera_only = False
+        self._check_limits()
 
-    # ------------------------------------------------------------------ setup
-    def _check_contract_fits_limits(self):
+    # ------------------------------------------------------------------ setup checks
+    def _check_limits(self):
         from actuation import independent_targets
-        corners = [(lo0, lo1) for lo0 in self.spec.action.bounds_m[0] for lo1 in self.spec.action.bounds_m[1]]
-        v = 1000 * self.spec.action.move_speed_m_s
+        v = 1000 * self.vmax_m_s
         if v > self.limits["max_speed_mm_s"] + 1e-9:
-            raise ValueError("Contract move speed exceeds this session's speed ceiling")
-        for c in corners:
-            independent_targets(list(self.cable.model_to_physical_mm(c)), [v, v], self.rests_mm, self.limits)
+            raise ValueError("Selected cable speed exceeds this session's speed ceiling")
+        for d in (-self.spec.action.diff_limit_m, 0.0, self.spec.action.diff_limit_m):
+            mm = self.cable.model_to_physical_mm(C.payouts_from_diff(d))
+            independent_targets(list(mm), [v, v], self.rests_mm, self.limits)
 
     @property
     def active(self) -> bool:
         return self.state in ("observe", "ack", "moving")
 
+    @property
+    def waiting(self) -> bool:
+        return self.state == "await_egg"
+
     def _update(self, state, message):
         self.state, self.message = state, message
         self.events.append(dict(state=state, message=message, t=self.clock()))
 
+    # ------------------------------------------------------------------ measurements
+    def _lengths_mm(self, item) -> np.ndarray:
+        from analysis import inputs_at
+        lengths, _ = inputs_at(item["packet"], item["packet"]["t_s"], 0.65)
+        return np.asarray(lengths)
+
+    def _diff_m(self, item) -> float:
+        if self.camera_only:
+            return 0.0
+        return float(C.diff_from_payouts(self.cable.physical_to_model_m(self._lengths_mm(item)))[0])
+
+    def _egg_uv(self, item):
+        det = self.egg_det.detect(item["rgb"])
+        return (None, None) if det is None else (self.camera.px_to_c(det.px), det)
+
     # ------------------------------------------------------------------ episode lifecycle
-    def start_episode(self, remote: dict, items: list[dict], placement_id: str, operator_note: str = ""):
+    def start_episode(self, remote: dict, items: list[dict], placement_id: str = "free", operator_note: str = ""):
         if self.active:
             raise ValueError("An episode is already running")
         item = items[-1]
         self.camera_only = False
         try:
-            payout = self._payout_m(item)
+            d_meas = self._diff_m(item)
         except (ValueError, KeyError) as exc:
             if not self.dry_run:
                 raise ValueError("Referenced encoder samples are required: " + str(exc)) from exc
-            self.camera_only = True          # shadow mode without motors: payout assumed neutral, flagged in logs
-            payout = np.asarray(self.spec.action.neutral_m, dtype=float)
+            self.camera_only, d_meas = True, 0.0
         if not self.camera_only:
             self._require_motor_ready(remote)
-        if np.max(np.abs(payout - np.asarray(self.spec.action.neutral_m))) > START_TOLERANCE_M:
-            raise ValueError("Robot is not at the trained start pose (neutral payout +-1 mm). Use Return to start first.")
         uvs = []
         for it in items[-START_FRAMES:]:
-            det = self.detector.detect(it["rgb"])
-            if det is None:
+            uv, _ = self._egg_uv(it)
+            if uv is None:
                 raise ValueError("Egg not detected in every recent frame; check colour calibration and lighting")
-            uvs.append(self.camera.px_to_c(det.px))
+            uvs.append(uv)
         uvs = np.array(uvs)
         if len(uvs) < START_FRAMES or np.max(np.linalg.norm(uvs - uvs.mean(0), axis=1)) > START_SPREAD_M:
             raise ValueError("Egg detection is not yet stable (need 5 frames within 2 mm)")
         start = uvs.mean(0)
-        au, v = abs(start[0]), start[1]
-        (a0, a1), (v0, v1) = self.region["abs_u_m"], self.region["v_m"]
-        tol = REGION_TOLERANCE_M
-        if not (a0 - tol <= au <= a1 + tol and v0 - tol <= v <= v1 + tol):
-            raise ValueError(f"Egg at u={start[0]*100:.1f} cm, v={v*100:.1f} cm is outside the trained placement region")
+        self._check_placement(start, d_meas)
         self.egg_start = start
-        self.prev_action = np.zeros(2)
-        self.prev_limited = payout.copy()      # reconcile with the measured robot state
+        self.last_seen, self.visible = start.copy(), 1.0
+        self.prev_limited = d_meas
+        self.prev_action = d_meas / self.spec.action.diff_limit_m
         self.decision_index = 0
         self.last_command_t = -1e9
         self.target_mm = None if self.camera_only else [float(x) for x in self._lengths_mm(item)]
-        self.off_since = None
-        self.missing_since = None
+        self.off_since = self.empty_since = None
         self.command_id = None
         eid = time.strftime("%Y%m%dT%H%M%S") + "_" + uuid.uuid4().hex[:6]
         self.log = EpisodeLog(self.log_root / eid, eid, dict(
             episode_id=eid, placement_id=placement_id, operator_note=operator_note, dry_run=self.dry_run,
+            camera_only=self.camera_only, vmax_mm_s=1000 * self.vmax_m_s, auto_started=self.waiting,
             policy=self.bundle.manifest, contract_id=C.CONTRACT_ID, contract_sha256=sha(Path(C.__file__)),
-            cable_map=self.cable.__dict__, cable_map_fingerprint=self.cable.fingerprint(),
-            camera_map=self.camera.__dict__, camera_map_fingerprint=self.camera.fingerprint(),
-            egg_start_uv_m=start, rests_mm=self.rests_mm, limits=self.limits, camera_only=self.camera_only,
-            started_wall=time.time(),
+            cable_map=self.cable.__dict__, camera_map=self.camera.__dict__, egg_start_uv_m=start,
+            start_diff_m=d_meas, rests_mm=self.rests_mm, limits=self.limits, started_wall=time.time(),
             started_monotonic=self.clock(), outcome=None))
         self.log.frame("start.jpg", item["rgb"])
         if not self.dry_run:
-            try:
-                self.send("record", enabled=True)
-            except Exception:
-                pass
+            self._send_quiet("record", enabled=True)
         self.outcome = None
-        self._update("observe", f"Episode {eid} started ({'DRY RUN — no motor writes' if self.dry_run else 'ARMED'})")
+        self.last_start = start
+        self._update("observe", f"Episode {eid} started ({'DRY RUN — no motor writes' if self.dry_run else 'ARMED'}), "
+                                f"D = {1000 * d_meas:+.1f} mm")
+
+    def _check_placement(self, uv, d_meas):
+        (a0, a1), (v0, v1) = self.region["abs_u_m"], self.region["v_m"]
+        t = REGION_TOLERANCE_M
+        if not (a0 - t <= abs(uv[0]) <= a1 + t and v0 - t <= uv[1] <= v1 + t):
+            raise ValueError(f"Egg at u={uv[0]*100:+.1f} cm, v={uv[1]*100:.1f} cm is outside the trained region")
+        clear = C.robot_clearance(uv, d_meas, self.bundle.table)
+        if clear <= self.spec.autostart.clearance_m:
+            raise ValueError(f"Egg is {clear*1000:.0f} mm from the robot in its current shape (need > "
+                             f"{self.spec.autostart.clearance_m*1000:.0f} mm)")
+
+    def _send_quiet(self, action, **kw):
+        try:
+            return self.send(action, **kw)
+        except Exception:
+            return None
 
     def finish(self, outcome: str, message: str, hold: bool = True):
-        if hold and not self.dry_run:
-            try:
-                self.send("hold")
-            except Exception:
-                pass
+        if hold and not self.dry_run and self.state in ("ack", "moving"):
+            self._send_quiet("hold")
         if not self.dry_run:
-            try:
-                self.send("record", enabled=False)
-            except Exception:
-                pass
+            self._send_quiet("record", enabled=False)
         self.outcome = outcome
         if self.log:
             self.log.close(outcome=outcome, terminal_message=message, decisions=self.decision_index,
                            ended_monotonic=self.clock(), duration_s=self.clock() - self.log.meta["started_monotonic"])
-        self._update("done", f"{outcome}: {message}")
+            self.episodes.append(dict(episode=self.log.episode_id, outcome=outcome, decisions=self.decision_index,
+                                      start_uv=self.egg_start.tolist(), auto_started=self.log.meta["auto_started"]))
+        resumable = outcome in ("SUCCESS", "FAILURE_TIMEOUT", "UNKNOWN")
+        if self.auto_continue and resumable:
+            self.still.reset()
+            self._update("await_egg", f"{outcome}: {message}. Holding; place a new egg and take your hand away.")
+        else:
+            self._update("done", f"{outcome}: {message}")
 
     def abort(self, reason: str):
         if self.active:
             self.finish("ABORTED", reason)
+        elif self.waiting:
+            self._update("done", "Auto-continue stopped: " + reason)
 
     def operator_label(self, knocked_off: bool, note: str = ""):
-        """Resolve an UNKNOWN episode from the recorded video (kept separate from automatic SUCCESS)."""
         if self.outcome != "UNKNOWN" or not self.log:
             raise ValueError("Only an UNKNOWN episode can be labelled manually")
         self.log.close(operator_label="KNOCKED_OFF" if knocked_off else "NOT_KNOCKED_OFF", operator_label_note=note,
                        operator_label_wall=time.time())
 
-    # ------------------------------------------------------------------ messages from the motor owner
+    # ------------------------------------------------------------------ motor-owner messages
     def event(self, event: dict):
-        if not self.active:
+        if not (self.active or self.waiting):
             return
         if event.get("type") in ("closing", "closed", "startup_failed", "transport_closed"):
-            self.finish("FAULT_CONNECTION", "Connection ended: " + str(event.get("message", event["type"])), hold=False)
+            if self.active:
+                self.finish("FAULT_CONNECTION", "Connection ended: " + str(event.get("message", event["type"])), hold=False)
+            else:
+                self._update("done", "Connection ended while waiting")
             return
         if self.state == "ack" and event.get("id") == self.command_id:
             if event["type"] == "rejected":
@@ -251,13 +302,20 @@ class KnockdownRunner:
             elif event["type"] == "accepted":
                 self._update("moving", f"Decision {self.decision_index}: moving")
 
-    # ------------------------------------------------------------------ main loop (called ~10 Hz)
+    # ------------------------------------------------------------------ main loop (~10 Hz)
     def tick(self, remote: dict, remote_age: float, item: dict | None, max_age: float = 0.5, max_gap: float = 0.65):
-        if not self.active:
+        if not (self.active or self.waiting):
             return
         now = self.clock()
         if item is None or item.get("displayed_age_s", 1e9) > max_age or (not self.camera_only and remote_age > 1.5):
-            self.finish("FAULT_STALE", "Fresh camera frame or motor status lost")
+            if self.active:
+                self.finish("FAULT_STALE", "Fresh camera frame or motor status lost")
+            else:
+                self._update("done", "Auto-continue stopped: camera or motor status stale")
+            return
+        self.recent.append(item)
+        if self.waiting:
+            self._tick_waiting(remote, item, now)
             return
         if not self.camera_only:
             try:
@@ -265,8 +323,12 @@ class KnockdownRunner:
             except ValueError as exc:
                 self.finish("FAULT_MOTOR", str(exc))
                 return
-        det = self.detector.detect(item["rgb"])
-        if self._check_success(det, now, item):
+        uv, det = self._egg_uv(item)
+        if uv is not None:
+            self.last_seen, self.visible = uv, 1.0
+        else:
+            self.visible = 0.0
+        if self._check_success(uv, item, now):
             return
         if self.state == "ack" and now - self.sent_t > ACK_TIMEOUT_S:
             self.finish("FAULT_ACK_TIMEOUT", "Command acknowledgement timed out; never retried")
@@ -280,24 +342,38 @@ class KnockdownRunner:
                     item["packet"], self.target_mm, SETTLE_WINDOW_S, max_gap):
                 self._update("observe", f"Decision {self.decision_index}: settled")
             return
-        if self.state != "observe":
-            return
-        if now - self.last_command_t < self.spec.action.decision_period_s:
+        if self.state != "observe" or now - self.last_command_t < self.spec.action.decision_period_s:
             return
         if self.decision_index >= self.spec.episode_decisions:
-            self.finish("FAILURE_TIMEOUT", f"No knockdown after {self.decision_index} decisions")
+            near = self.visible and np.linalg.norm(self.last_seen - self.egg_start) < self.spec.success.hw_off_radius_m
+            self.finish("FAILURE_TIMEOUT" if near else "UNKNOWN",
+                        f"No confirmed knockdown after {self.decision_index} decisions"
+                        + ("" if near else "; egg not seen on its pedestal — label from video"))
             return
-        if det is None:
-            self.missing_since = self.missing_since or now
-            if now - self.missing_since > DETECTION_WAIT_S:
-                self.finish("UNKNOWN", "Egg not detected (occlusion or out of view); label from video")
-            return
-        self.missing_since = None
         self._decide(item, det, now)
 
-    # ------------------------------------------------------------------ internals
+    def _tick_waiting(self, remote, item, now):
+        still_s = self.still.update(item["rgb"], now)
+        a = self.spec.autostart
+        uvs = [self._egg_uv(it)[0] for it in list(self.recent)[-START_FRAMES:]]
+        if any(u is None for u in uvs) or len(uvs) < START_FRAMES:
+            self.message = "Waiting: no egg detected"
+            return
+        uvs = np.array(uvs)
+        if np.max(np.linalg.norm(uvs - uvs.mean(0), axis=1)) > a.egg_stable_m or still_s < a.still_s:
+            self.message = f"Waiting: scene still for {still_s:.1f}/{a.still_s:.0f} s"
+            return
+        if self.outcome != "SUCCESS" and np.linalg.norm(uvs.mean(0) - self.last_start) < RETRY_MOVE_M:
+            self.message = "Waiting: move the egg to a new place (or press Run episode to retry here)"
+            return
+        try:
+            self.start_episode(remote, list(self.recent), placement_id="auto")
+            self.message = "Auto-started: " + self.message
+        except ValueError as exc:
+            self.message = "Waiting: " + str(exc)
+
     def _require_motor_ready(self, remote, allow_moving=False):
-        if self.dry_run:
+        if self.dry_run and self.camera_only:
             return
         axes = remote.get("axes", [])
         if len(axes) != 2 or any(not a.get("enabled") or a.get("rest_count") is None or a.get("state") in ("FAULT", "DISABLED")
@@ -308,72 +384,75 @@ class KnockdownRunner:
         if list(remote.get("rest_lengths_mm", self.rests_mm)) != list(self.rests_mm):
             raise ValueError("Rest references changed")
 
-    def _lengths_mm(self, item) -> np.ndarray:
-        from analysis import inputs_at
-        lengths, _ = inputs_at(item["packet"], item["packet"]["t_s"], 0.65)
-        return np.asarray(lengths)
-
-    def _payout_m(self, item) -> np.ndarray:
-        return self.cable.physical_to_model_m(self._lengths_mm(item))
-
-    def _check_success(self, det, now, item) -> bool:
+    def _check_success(self, uv, item, now) -> bool:
         s = self.spec.success
-        if det is None:
-            self.off_since = None
-            return False
-        uv = self.camera.px_to_c(det.px)
-        if np.linalg.norm(uv - self.egg_start) > s.hw_off_radius_m:
+        if uv is not None and np.linalg.norm(uv - self.egg_start) > s.hw_off_radius_m:
             self.off_since = self.off_since or now
             if now - self.off_since >= s.hw_confirm_s:
-                self.log.frame("success.jpg", item["rgb"])
-                self.finish("SUCCESS", f"Egg seen {np.linalg.norm(uv-self.egg_start)*1000:.0f} mm from its start for "
-                                       f"{now-self.off_since:.1f} s")
-                return True
+                return self._success(item, f"egg seen {np.linalg.norm(uv - self.egg_start)*1000:.0f} mm from its start")
         else:
             self.off_since = None
+        egg_near = uv is not None and np.linalg.norm(uv - self.egg_start) <= s.hw_off_radius_m
+        cup = self.ped_det.detect(item["rgb"]) if self.ped_det is not None else None
+        cup_here = cup is not None and np.linalg.norm(self.camera.px_to_c(cup.px) - self.egg_start) <= s.hw_cup_match_m
+        if cup_here and not egg_near:
+            self.empty_since = self.empty_since or now
+            if now - self.empty_since >= s.hw_empty_cup_s:
+                return self._success(item, "empty blue cup visible at the egg's start position")
+        else:
+            self.empty_since = None
         return False
+
+    def _success(self, item, why) -> bool:
+        self.log.frame("success.jpg", item["rgb"])
+        self.finish("SUCCESS", why)
+        return True
 
     def _decide(self, item, det, now):
         a = self.spec.action
-        payout = np.asarray(a.neutral_m, dtype=float) if self.camera_only else self._payout_m(item)
-        egg_uv = self.camera.px_to_c(det.px)
-        obs = C.build_actor_obs(egg_uv, self.egg_start, payout, self.prev_action)
+        d_meas = self._diff_m(item)
+        obs = C.build_actor_obs(self.last_seen, np.array([self.visible]), self.egg_start, np.array([d_meas]),
+                                np.array([self.prev_action]))
         try:
             raw = self.bundle.policy(obs)
         except ValueError as exc:
             self.finish("FAULT_NUMERIC", str(exc))
             return
-        clipped = C.clip_raw(raw, a)
-        desired = C.desired_target(clipped, a)
-        limited = C.limited_target(desired, payout if self.dry_run else self.prev_limited, a)
-        lengths_mm = self.cable.model_to_physical_mm(limited)
-        speed = 1000 * a.move_speed_m_s
+        clipped = float(C.clip_raw(raw, a)[0])
+        desired = float(C.desired_diff(np.array([clipped]), a)[0])
+        base = d_meas if self.dry_run else self.prev_limited
+        limited = float(C.limited_diff(np.array([desired]), np.array([base]), a)[0])
+        moved = abs(limited - base) >= a.deadband_diff_m
+        payouts = C.payouts_from_diff(limited)
+        lengths_mm = self.cable.model_to_physical_mm(payouts)
+        speed = max(LAB_MIN_SPEED_MM_S, 1000 * float(C.cable_speed(np.array(limited - d_meas), self.vmax_m_s, a)))
         row = dict(decision=self.decision_index, t=now, frame_t_s=item["packet"].get("t_s"),
                    frame_age_s=item.get("displayed_age_s"), motor_age_s=item["packet"].get("motor_age_s"),
                    encoder_mm=None if self.camera_only else self._lengths_mm(item), payout_assumed=self.camera_only,
-                   payout_m=payout, egg_px=det.px, egg_uv_m=egg_uv,
-                   egg_confidence=det.confidence, egg_candidates=det.n_candidates, obs=obs, raw=raw,
-                   clipped=clipped, desired_m=desired, limited_m=limited, command_mm=lengths_mm,
-                   speed_mm_s=speed, dry_run=self.dry_run,
+                   diff_measured_m=d_meas, egg_visible=self.visible, egg_uv_m=self.last_seen,
+                   egg_px=None if det is None else det.px, egg_confidence=None if det is None else det.confidence,
+                   obs=obs, raw=raw, clipped=clipped, desired_diff_m=desired, limited_diff_m=limited, moved=moved,
+                   command_mm=lengths_mm, speed_mm_s=speed, vmax_mm_s=1000 * self.vmax_m_s, dry_run=self.dry_run,
                    since_last_command_s=now - self.last_command_t if self.last_command_t > 0 else None)
-        try:
-            from actuation import independent_targets
-            if not self.camera_only:
+        if moved and not self.camera_only:
+            try:
+                from actuation import independent_targets
                 independent_targets(list(lengths_mm), [speed, speed], self.rests_mm, self.limits)
-        except ValueError as exc:
-            row["rejected_locally"] = str(exc)
-            self.log.decision(row)
-            self.finish("FAULT_LIMIT", "Policy target failed Lab limit validation: " + str(exc))
-            return
+            except ValueError as exc:
+                row["rejected_locally"] = str(exc)
+                self.log.decision(row)
+                self.finish("FAULT_LIMIT", "Policy target failed Lab limit validation: " + str(exc))
+                return
         self.log.frame(f"d{self.decision_index:02d}.jpg", item["rgb"])
-        self.prev_action = np.asarray(clipped, dtype=float)
-        self.prev_limited = np.asarray(limited, dtype=float)
+        self.prev_action = clipped
+        self.prev_limited = limited if moved else base
         self.decision_index += 1
         self.last_command_t = now
-        if self.dry_run:
+        if self.dry_run or not moved:
             row["command_id"] = None
             self.log.decision(row)
-            self._update("observe", f"Decision {self.decision_index} computed (dry run, not sent)")
+            self._update("observe", f"Decision {self.decision_index}: " + ("computed (dry run, not sent)" if self.dry_run
+                                                                            else "no move (inside 0.5 mm deadband)"))
             return
         travel = float(np.max(np.abs(lengths_mm - self._lengths_mm(item))) / speed)
         try:
@@ -388,10 +467,10 @@ class KnockdownRunner:
         self.target_mm = [float(x) for x in lengths_mm]
         self.sent_t = now
         self.move_deadline = now + 2 * travel + 6.0
-        self._update("ack", f"Decision {self.decision_index}: awaiting acknowledgement")
+        self._update("ack", f"Decision {self.decision_index}: D -> {1000*limited:+.1f} mm at {speed:.2f} mm/s")
 
 
-def return_to_start_command(cable: CableMap, speed_mm_s: float = 2.0) -> dict:
-    """Explicit, operator-confirmed move back to the trained start pose (never automatic)."""
-    lengths = cable.model_to_physical_mm(np.asarray(C.NEUTRAL_PAYOUT_M))
+def straighten_command(cable: CableMap, speed_mm_s: float = 2.0) -> dict:
+    """Optional, operator-confirmed move to D = 0 (never automatic; not required by contract v2)."""
+    lengths = cable.model_to_physical_mm(C.payouts_from_diff(0.0))
     return dict(action="independent", lengths_mm=[float(x) for x in lengths], speeds_mm_s=[speed_mm_s, speed_mm_s])

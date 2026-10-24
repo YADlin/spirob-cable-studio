@@ -21,7 +21,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from rl import contract as C  # noqa: E402
-from rl.egg_vision import EggColour, EggDetector  # noqa: E402
+from rl.egg_vision import Colour, EggDetector  # noqa: E402
 from rl.hardware_io import CameraMap  # noqa: E402
 from rl.runner import PolicyBundle  # noqa: E402
 
@@ -39,7 +39,7 @@ def main():
     meta = json.loads((ep / "episode.json").read_text())
     vision = json.loads(Path(a.vision).read_text())
     camera = CameraMap(**{k: (tuple(v) if isinstance(v, list) else v) for k, v in meta["camera_map"].items()})
-    det = EggDetector(EggColour(**vision["colour"]), camera.pixels_per_m)
+    det = EggDetector(Colour(**vision["colour"]), camera.pixels_per_m)
     bundle = PolicyBundle(a.policy)
     if bundle.manifest["checkpoint_sha256"] != meta["policy"]["checkpoint_sha256"]:
         print("WARNING: replaying with a different policy than the one logged")
@@ -51,11 +51,12 @@ def main():
         if img is None:
             print(f"decision {r['decision']}: frame missing"); continue
         d = det.detect(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-        if d is None:
-            print(f"decision {r['decision']}: egg NOT re-detected"); worst_px = float("inf"); continue
-        dpx = float(np.linalg.norm(np.asarray(d.px) - np.asarray(r["egg_px"])))
-        prev = np.asarray(rows[r["decision"] - 1]["clipped"]) if r["decision"] > 0 else np.zeros(2)
-        obs = C.build_actor_obs(camera.px_to_c(d.px), start, np.asarray(r["payout_m"]), prev)
+        if (d is None) != (r["egg_px"] is None):
+            print(f"decision {r['decision']}: egg visibility differs from the log"); worst_px = float("inf"); continue
+        dpx = 0.0 if d is None else float(np.linalg.norm(np.asarray(d.px) - np.asarray(r["egg_px"])))
+        egg_uv = np.asarray(r["egg_uv_m"]) if d is None else camera.px_to_c(d.px)
+        prev = rows[r["decision"] - 1]["clipped"] if r["decision"] > 0 else meta["start_diff_m"] / C.DEFAULT.action.diff_limit_m
+        obs = C.build_actor_obs(egg_uv, np.array([r["egg_visible"]]), start, np.array([r["diff_measured_m"]]), np.array([prev]))
         raw = bundle.policy(obs)
         dact = float(np.max(np.abs(raw - np.asarray(r["raw"]))))
         worst_px, worst_act = max(worst_px, dpx), max(worst_act, dact)

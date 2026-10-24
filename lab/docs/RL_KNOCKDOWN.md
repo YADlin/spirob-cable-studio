@@ -1,68 +1,84 @@
-# RL egg knockdown — operator guide
+# RL egg knockdown — operator guide (contract v2)
 
-**What this adds.** An **RL** tab in the Lab that runs a policy trained in
-`spirob-mjlab` (`Mjlab-SpiRob-EggKnockdown`) on the rig. The policy sees only the
-overhead camera (egg position) and the motor encoders. It moves the cables through
-the existing motor owner with ordinary `independent` moves at 15 mm/s, one bounded
-move (≤ 8 mm per cable) per decision. Workstation-only change: **no WSL
-redeploy is needed** (`setup.py deploy` files are untouched).
+**What this adds.** An **RL** tab that runs a policy trained in `spirob-mjlab`
+(`Mjlab-SpiRob-EggKnockdown`, contract v2) on the rig. The policy sees only the
+overhead camera (egg position, visible or not) and the motor encoders (cable
+difference D). It commands **only D**; the cable mean stays at 227.35 mm. Each
+decision is one ordinary `independent` move of at most 8 mm in D, through the
+existing motor owner and its limits. Workstation-only change: **no WSL redeploy**.
 
 ```
-camera frame ─► egg detector ─► egg (u,v) ┐
-encoders ─────► payout (model metres) ────┼─► contract obs (8) ─► policy ─► target ─► mm ─► 'independent' move
-previous action ──────────────────────────┘                                            (Lab limits, Stop/Hold, watchdog)
+camera ─► green egg detector ─► egg (u,v), visible ┐
+camera ─► blue cup detector  ─► empty-cup check     │ (success rule 2)
+encoders ─► D = payout0 − payout1 ─────────────────┼─► 7 numbers ─► policy ─► new D ─► L0 = 227.35 + D/2
+previous action ───────────────────────────────────┘                               L1 = 227.35 − D/2
 ```
+
+**Speed.** Pick the ceiling in *Cable speed ceiling*: start at **5 mm/s**, then 10,
+and 15 only if needed. The speed is scaled to the move: a full 8 mm step in D runs at
+the ceiling, a 1 mm step at 1/8 of it (e.g. 1.9 mm/s at 15 mm/s), never below
+0.5 mm/s. Moves under 0.5 mm are skipped. Every move therefore takes the same time.
 
 ## Before the first session (once)
 
-1. **Measure** with a tape and write down: camera lens height above the table [m];
-   egg cap diameter; pedestal height and cup size. The trained scene assumes a
-   40 mm cap on a pedestal whose top is 66 mm above the table, with the robot plane
-   at 90 mm. Report big differences before armed trials.
-2. Check the camera sees the whole placement region plus a margin: with the current
-   alignment the frame reaches only ≈ 8 cm beyond the −u edge. Knocked eggs that
-   leave the frame become UNKNOWN and need manual labels.
-3. Copy the export folder (from `spirob-mjlab/exports/<name>`) to the workstation.
+1. **Robot model.** `lab/model/spirob_robot.xml` must be the knockdown model
+   (`spirob_robot_k2_2.148_20261024_0318.xml`, renamed). Check:
+   `sha256sum model/spirob_robot.xml` → must start with `fe7d13cd476a`.
+   The Lab refuses a policy exported against a different file.
+2. **Print the egg and pedestal** from the drawing (`spirob-mjlab/docs/knockdown/egg_pedestal.png`):
+   egg green (#29AB4F), pedestal blue (#1F59C7). Pedestal cup top 46 mm above the
+   table (20 mm lower than the original, so the drooping tip meets the egg, not the
+   cup). Fix the pedestal to the table. Egg ≈ 12 g.
+3. **Camera.** Lens 321 mm above the table, looking down, centre 140 mm from the
+   base point along the rest axis (`rig_geometry.png`). After any camera move, redo
+   the Lab camera alignment before RL work.
+4. Copy the export folder (`spirob-mjlab/exports/<name>`) to the workstation.
 
 ## Each session
 
-1. `bash start.sh` → Camera ON → Connect → confirm physical rest → Enable at rest
-   (the existing flow). Check alignment as usual.
-2. **RL** tab → *Egg knockdown policy…* → **Load exported policy folder**. The Lab
-   refuses the policy if its contract, robot model or weights do not match.
-3. **Sample egg colour**, then click the centre of the egg. Enter the camera height
-   and **Save camera settings** (enables the parallax correction; 0 = off).
-4. **Dry run first** (default): choose a placement (P01–P12), put the egg on the
-   green cross (✓ appears within 5 mm), **Run episode**. Decisions are computed and
-   logged; no motor command is sent. Stop with STOP / HOLD.
-5. **Armed run:** untick Dry run → **Arm motor commands…** → confirm → **Run episode**.
-   Keep a hand near **STOP / HOLD**. The episode ends on success (egg seen > 35 mm
-   from its start for 0.5 s), 24 decisions, a fault, or UNKNOWN.
-6. Between episodes: **Return to start pose (2 mm/s)** *before* placing the next
-   egg (the episode will not start unless both cables are within 1 mm of the start
-   pose). Then place the egg on the next cross.
-7. UNKNOWN episodes: review the recorded video, then press **UNKNOWN → knocked off**
-   or **UNKNOWN → still on**. These labels are kept separate from automatic results.
-8. Disconnect and **Save** the run as usual.
+1. `bash start.sh` → Camera ON → Connect → confirm physical rest → Enable at rest.
+   Check the alignment overlay.
+2. **RL** tab → **Load exported policy folder…**. It is refused if the contract,
+   robot model hash, pose table or weights do not match.
+3. **Sample EGG colour** (click the green egg), **Sample PEDESTAL colour** (click the
+   empty blue cup). Enter camera height 0.321 → **Save camera settings**.
+4. **Dry run first** (default). Placement `free` (anywhere) or P01–P12 (cross on
+   screen). The egg must be > 25 mm from the robot. **Run episode** computes and logs
+   decisions without moving. **STOP / HOLD** ends it.
+5. **Armed run:** untick Dry run → **Arm motor commands…** → confirm → choose the speed
+   → **Run episode**. Keep a hand near **STOP / HOLD**. The episode ends on success,
+   30 decisions, a fault, or UNKNOWN.
+   Success = egg seen > 35 mm from its start for 0.5 s, **or** the empty blue cup seen
+   at the start position with no egg near it for 0.7 s.
+6. **Next egg.** The robot stays where it stopped. Either press **Run episode** again
+   after placing the egg, or tick **Auto-continue**: put the egg on the pedestal at a
+   new spot and take your hand away. The next episode starts when the image has been
+   still for 2 s and the egg is > 25 mm from the robot. After a non-success the
+   egg must be moved at least 20 mm before auto-continue starts again (no retry at
+   the same spot).
+7. **Straighten robot (D = 0 at 2 mm/s)…** when you want the robot straight again.
+8. UNKNOWN episodes: check the video, then **UNKNOWN → knocked off** or
+   **UNKNOWN → still on** (kept separate from automatic results).
+9. Disconnect and **Save** the run as usual.
 
-## Pre-registered armed trial order (30 episodes, seed 2026)
+## Armed trial plan (to run only after dry runs look right)
 
-`P01 P03 P01 P03 P09 P06 P10 P12 P11 P05 P06 P02 P04 P01 P07 P03 P04 P08 P07 P02 P06 P11 P08 P02 P12 P09 P10 P05 P05 P04`
+1. 10 episodes at 5 mm/s, placement `free`, auto-continue on.
+2. If ≥ 8/10 succeed, run the pre-registered 30 (seed 2026) at the same speed:
+   `P01 P03 P01 P03 P09 P06 P10 P12 P11 P05 P06 P02 P04 P01 P07 P03 P04 P08 P07 P02 P06 P11 P08 P02 P12 P09 P10 P05 P05 P04`
+3. Only if 5 mm/s fails because moves are too slow, repeat at 10, then 15.
 
-Run every episode in this order and keep every outcome, including faults and
-aborts. Target: ≥ 27/30 automatic successes over ≥ 10 placements; report counts,
-the 95% Wilson interval, UNKNOWN labels and faults separately.
+Keep every outcome, including faults and aborts. Report successes with the 95 %
+Wilson interval, UNKNOWN labels and faults separately.
 
 ## Where the evidence is
 
 `logs/runs/session_<id>/rl_episodes/<episode>/`: `episode.json` (policy, contract,
-calibration fingerprints, outcome), `decisions.jsonl` (raw, desired, limited,
-command mm, encoder mm, egg pixels/position, frame ages), `start.jpg`, `dNN.jpg`,
-`success.jpg`. Continuous video: Windows `SpiRob_Data/<session>/` (recording starts
-and stops with each armed episode).
+model hash, speed ceiling, outcome), `decisions.jsonl` (raw action, desired, limited
+and measured D, per-cable speeds, egg pixels/position, visible flag, frame ages),
+`start.jpg`, `dNN.jpg`, `success.jpg`.
 
-Replay a logged episode offline:
-`uv run --frozen python -m rl.replay --episode <episode folder> --policy <export folder>`
+Offline replay: `uv run --frozen python -m rl.replay --episode <episode folder> --policy <export folder>`
 
 ## Verification (no hardware)
 
