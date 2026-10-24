@@ -1,7 +1,7 @@
-# RL egg knockdown — operator guide (contract v2)
+# RL egg knockdown — operator guide (contract v3)
 
 **What this adds.** An **RL** tab that runs a policy trained in `spirob-mjlab`
-(`Mjlab-SpiRob-EggKnockdown`, contract v2) on the rig. The policy sees only the
+(`Mjlab-SpiRob-EggKnockdown-Camera`, contract v3) on the rig. The policy sees only the
 overhead camera (egg position, visible or not) and the motor encoders (cable
 difference D). It commands **only D**; the cable mean stays at 227.35 mm. Each
 decision is one ordinary `independent` move of at most 8 mm in D, through the
@@ -14,10 +14,14 @@ encoders ─► D = payout0 − payout1 ─────────────�
 previous action ───────────────────────────────────┘                               L1 = 227.35 − D/2
 ```
 
-**Speed.** Pick the ceiling in *Cable speed ceiling*: start at **5 mm/s**, then 10,
-and 15 only if needed. The speed is scaled to the move: a full 8 mm step in D runs at
-the ceiling, a 1 mm step at 1/8 of it (e.g. 1.9 mm/s at 15 mm/s), never below
-0.5 mm/s. Moves under 0.5 mm are skipped. Every move therefore takes the same time.
+**Speed.** Set **Common cable speed** between 5 and 20 mm/s, within the session's
+limits. Both motors use that value for every move, including small corrections.
+D changes under 0.5 mm are skipped. The existing move → HOLD → settled-encoder
+sequence and 1.2 s minimum decision interval remain in effect.
+
+V2 exports are intentionally incompatible with this v3 contract. Evaluate the
+checkpoint with rendered camera observations and the new speed rule before
+exporting. The original v2 branch remains available for its original bundles.
 
 ## Before the first session (once)
 
@@ -45,7 +49,11 @@ the ceiling, a 1 mm step at 1/8 of it (e.g. 1.9 mm/s at 15 mm/s), never below
 2. **RL** tab → **Load exported policy folder…**. It is refused if the contract,
    robot model hash, pose table or weights do not match.
 3. **Sample EGG colour** (click the black egg), **Sample PEDESTAL colour** (click the
-   empty white cup). Enter camera height 0.321 → **Save camera settings**.
+   empty white cup). Enter camera height 0.321 → **Save camera settings**. The default upright egg
+   feature height is **0.087 m**; **0.107 m is its top**, not its centre. Remove an
+   old explicit `egg_feature_z_m: 0.107` override from `rl_vision.json` if present.
+   Empty-cup mapping uses 0.046 m. Recheck coordinates at several known placements
+   after alignment; lens distortion and actual lighting still need rig validation.
 4. **Dry run first** (default). Placement `free` (anywhere) or P01–P12 (cross on
    screen). The egg must be > 25 mm from the robot. **Run episode** computes and logs
    decisions without moving. **STOP / HOLD** ends it.
@@ -78,7 +86,7 @@ Wilson interval, UNKNOWN labels and faults separately.
 ## Where the evidence is
 
 `logs/runs/session_<id>/rl_episodes/<episode>/`: `episode.json` (policy, contract,
-model hash, speed ceiling, outcome), `decisions.jsonl` (raw action, desired, limited
+model hash, common speed, outcome), `decisions.jsonl` (raw action, desired, limited
 and measured D, per-cable speeds, egg pixels/position, visible flag, frame ages),
 `start.jpg`, `dNN.jpg`, `success.jpg`.
 

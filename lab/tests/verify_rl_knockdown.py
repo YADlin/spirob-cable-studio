@@ -4,7 +4,7 @@
   2. Detectors on synthetic frames: black egg next to the white robot and its shadow on brown floor; white empty cup.
   3. Policy bundle verification (valid; wrong robot model; tampered weights).
   4. Closed loop through the MuJoCo twin with a SYNTHETIC heuristic policy: knockdown from straight and
-     curled starts, all cable wirings, 5/10/15 mm/s ceilings, small steps slower than the ceiling.
+     curled starts, all cable wirings, 5--20 mm/s common speeds, independent of step size.
   5. Faults: rejected command, stuck motor, stale frames; egg hidden -> episode continues, never SUCCESS.
   6. Dry run sends no motor commands; placement outside region / too close to the robot is refused.
   7. Human-in-the-loop auto-continue: hold after success, hand blocks the start, new egg -> auto start.
@@ -120,7 +120,7 @@ def synthetic_bundle(folder: Path, gain=10.0) -> Path:
 
 tmp = Path(tempfile.mkdtemp())
 bundle = PolicyBundle(synthetic_bundle(tmp / "ok"))
-check("valid v2 bundle loads (7 -> 1)", bundle.policy.obs_dim == 7 and bundle.policy.act_dim == 1)
+check("valid v3 bundle loads (7 -> 1)", bundle.policy.obs_dim == 7 and bundle.policy.act_dim == 1)
 bad = synthetic_bundle(tmp / "bad")
 m = json.loads((bad / "manifest.json").read_text()); m["source_model_sha256"] = "0" * 64
 (bad / "manifest.json").write_text(json.dumps(m))
@@ -179,14 +179,14 @@ for uv, d0 in cases:
 for setup in (dict(SETUP, mapping=[1, 0]), dict(SETUP, signs=[-1, -1]), dict(SETUP, mapping=[1, 0], signs=[1, -1])):
     r, tw = episode((0.08, 0.11), setup=setup)
     check(f"wiring mapping={setup['mapping']} signs={setup['signs']} still knocks down", r.outcome == "SUCCESS", r.outcome)
-for vmax in (5.0, 10.0, 15.0):
+for vmax in (5.0, 7.5, 10.0, 15.0, 20.0):
     r, tw = episode((-0.08, 0.11), vmax=vmax)
     speeds = [c["speeds_mm_s"][0] for c in tw.commands if c["action"] == "independent"]
     check(f"speed ceiling {vmax:g} mm/s reached by full steps, never exceeded; knocks down",
           r.outcome == "SUCCESS" and abs(max(speeds) - vmax) < 1e-9,
           f"{r.outcome}, max {max(speeds):.2f} mm/s, {len(speeds)} moves")
 sp = [float(C.cable_speed(np.array(dd), 0.015)) * 1000 for dd in (0.001, 0.002, 0.004, 0.008)]
-check("small steps move proportionally slower (15 mm/s ceiling)", np.allclose(sp, [1.875, 3.75, 7.5, 15.0]), f"{sp} mm/s")
+check("small steps keep the selected common speed (15 mm/s)", np.allclose(sp, [15.0, 15.0, 15.0, 15.0]), f"{sp} mm/s")
 
 r, tw = episode((0.08, 0.11), fault="reject")
 check("rejected command -> FAULT_REJECTED and hold sent", r.outcome == "FAULT_REJECTED" and any(c["action"] == "hold" for c in tw.commands))
@@ -290,7 +290,7 @@ if args.motor_source:
                 now[0] += 0.05; rig.poll_all()
                 if all(a.state == "HOLDING" for a in rig.axes): break
             done += all(a.state == "HOLDING" for a in rig.axes)
-        check("RL moves (incl. slow small steps) pass the real dispatcher and motor Rig", done == len(moves) and done > 0,
+        check("RL moves (common-speed waypoints) pass the real dispatcher and motor Rig", done == len(moves) and done > 0,
               f"{done}/{len(moves)} moves settled; speeds {[round(c['speeds_mm_s'][0], 2) for c in moves]}")
 
 shutil.rmtree(tmp, ignore_errors=True)

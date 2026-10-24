@@ -102,10 +102,22 @@ class BlobDetector:
             shape_score = float(max(0.0, 1 - abs(circ - ideal) / ideal))
             size = float(math.exp(-abs(math.log(area / self.expected_area))))
             conf = 0.6 * shape_score + 0.4 * size
-            score = conf - (math.dist(cents[i], near_px) / (8 * math.sqrt(self.expected_area)) if near_px is not None else 0)
+            centre = cents[i]
+            if self.shape == "circle":
+                # The cap is circular; its stem and attached shadow can pull the
+                # component centroid sideways. Centre the largest inscribed disk
+                # instead. Fill specular holes before the distance transform.
+                x, y, w, h = stats[i, :4]
+                filled = np.zeros((h + 2, w + 2), np.uint8)
+                local = [c - np.array([[[x - 1, y - 1]]]) for c in contours]
+                cv2.drawContours(filled, local, -1, 255, cv2.FILLED)
+                dist = cv2.distanceTransform(filled, cv2.DIST_L2, cv2.DIST_MASK_PRECISE)
+                ys, xs = np.nonzero(dist >= dist.max() - 0.25)
+                centre = np.array([xs.mean() + x - 1, ys.mean() + y - 1])
+            score = conf - (math.dist(centre, near_px) / (8 * math.sqrt(self.expected_area)) if near_px is not None else 0)
             if score > best_score:
                 best_score = score
-                best = Detection((float(cents[i][0]), float(cents[i][1])), area, self.expected_area, circ, conf, 0)
+                best = Detection((float(centre[0]), float(centre[1])), area, self.expected_area, circ, conf, 0)
         if best is None or best.confidence < self.min_confidence:
             return None
         best.n_candidates = count

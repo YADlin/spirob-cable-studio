@@ -1,4 +1,4 @@
-"""RL egg-knockdown episode runner for the Lab (contract v2; workstation side, GUI thread).
+"""RL egg-knockdown episode runner for the Lab (contract v3; workstation side, GUI thread).
 
 Sends only acknowledged 'independent' moves through the existing motor owner; never enables,
 references or retries. One decision =
@@ -47,7 +47,7 @@ def sha(path: Path) -> str:
 
 
 class PolicyBundle:
-    """A verified export folder from spirob-mjlab tools/knockdown/export_policy.py (contract v2)."""
+    """A verified export folder from spirob-mjlab tools/knockdown/export_policy.py (contract v3)."""
 
     def __init__(self, folder: str | Path, lab_model: Path | None = None):
         self.folder = Path(folder)
@@ -70,13 +70,16 @@ class PolicyBundle:
             problems.append("pose_table.json missing or checksum mismatch")
         self.policy = NumpyPolicy(self.folder / "policy.npz")
         if self.policy.obs_dim != C.DEFAULT.actor_dim or self.policy.act_dim != 1:
-            problems.append("policy input/output size does not match contract v2 (7 -> 1)")
+            problems.append("policy input/output size does not match contract v3 (7 -> 1)")
         obs_p, act_p = self.folder / "parity_obs.npy", self.folder / "parity_actions.npy"
         self.lab_parity_error = float("nan")
         if obs_p.is_file():
             self.lab_parity_error = float(np.max(np.abs(self.policy(np.load(obs_p)) - np.load(act_p))))
             if self.lab_parity_error > 1e-4:
                 problems.append(f"Lab-side parity error {self.lab_parity_error:.2e} exceeds 1e-4")
+        for name, expected in m.get("perception_files", {}).items():
+            if name not in ("egg_vision.py", "camera_geometry.py") or sha(Path(__file__).with_name(name)) != expected:
+                problems.append("Perception source differs from evaluated export: " + str(name))
         if problems:
             raise ValueError("Policy rejected: " + "; ".join(problems))
         self.manifest = m
@@ -133,8 +136,8 @@ class KnockdownRunner:
     def __init__(self, bundle: PolicyBundle, cable: CableMap, camera: CameraMap, egg_detector, pedestal_detector,
                  rests_mm, limits: dict, send, log_root: Path, dry_run: bool = True, vmax_mm_s: float = 5.0,
                  auto_continue: bool = False, clock=time.monotonic):
-        if vmax_mm_s not in (5.0, 10.0, 15.0):
-            raise ValueError("Cable speed ceiling must be 5, 10 or 15 mm/s")
+        if not np.isfinite(vmax_mm_s) or not 5.0 <= vmax_mm_s <= 20.0:
+            raise ValueError("Common cable speed must be between 5 and 20 mm/s")
         self.bundle, self.cable, self.camera = bundle, cable, camera
         self.egg_det, self.ped_det = egg_detector, pedestal_detector
         self.rests_mm, self.limits, self.send = tuple(rests_mm), limits, send
@@ -394,7 +397,7 @@ class KnockdownRunner:
             self.off_since = None
         egg_near = uv is not None and np.linalg.norm(uv - self.egg_start) <= s.hw_off_radius_m
         cup = self.ped_det.detect(item["rgb"]) if self.ped_det is not None else None
-        cup_here = cup is not None and np.linalg.norm(self.camera.px_to_c(cup.px) - self.egg_start) <= s.hw_cup_match_m
+        cup_here = cup is not None and np.linalg.norm(self.camera.px_to_c(cup.px, feature_z_m=s.sim_support_top_z_m) - self.egg_start) <= s.hw_cup_match_m
         if cup_here and not egg_near:
             self.empty_since = self.empty_since or now
             if now - self.empty_since >= s.hw_empty_cup_s:
@@ -471,6 +474,6 @@ class KnockdownRunner:
 
 
 def straighten_command(cable: CableMap, speed_mm_s: float = 2.0) -> dict:
-    """Optional, operator-confirmed move to D = 0 (never automatic; not required by contract v2)."""
+    """Optional, operator-confirmed move to D = 0 (never automatic; not required by contract v3)."""
     lengths = cable.model_to_physical_mm(C.payouts_from_diff(0.0))
     return dict(action="independent", lengths_mm=[float(x) for x in lengths], speeds_mm_s=[speed_mm_s, speed_mm_s])

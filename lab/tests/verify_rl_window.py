@@ -63,7 +63,7 @@ with patch("rl.rl_window.SETTINGS", tmp / "rl_vision.json"):
           f"{len(w.runner.log.decisions)} decisions")
     w.stop_button.click(); app.processEvents()
     check("Stop / Hold ends the dry-run episode", not w.active and w.runner.outcome == "ABORTED", str(w.runner.outcome))
-    w.dry.setChecked(False); w.speed.setCurrentText("10 mm/s"); w.auto.setChecked(True)
+    w.dry.setChecked(False); w.speed.setValue(10.0); w.auto.setChecked(True)
     with patch.object(QMessageBox, "question", return_value=QMessageBox.Yes):
         w.arm_button.click()
     check("arming requires explicit confirmation", w.armed)

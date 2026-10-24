@@ -1,35 +1,16 @@
-"""Deployable policy contract v2 for SpiRob egg knockdown (camera + motor encoders only).
+"""Deployable contract v3: camera + motor encoders, fixed-mean difference waypoints.
 
-Single definition of what the actor sees and what its output means. Imported by the mjlab task
-and copied verbatim into the SpiRob Lab (``lab/rl/contract.py``); the Lab refuses a policy whose
-export records a different SHA-256 for this file.
+Copied verbatim to lab/rl/contract.py. V3 keeps the seven actor inputs, one action,
++/-80 mm D bounds, 8 mm step cap, 0.5 mm deadband and 1.2 s minimum decision
+period. Both motors use the operator-selected common speed (5--20 mm/s), including
+small moves. Each move finishes and both axes HOLD before another is dispatched.
+There is no streaming or retargeting while moving. Hardware settling can extend
+the decision interval beyond 1.2 s.
 
-Dependencies: Python standard library at import time; array helpers accept NumPy arrays or torch
-tensors (duck-typed) so simulation and hardware run the same arithmetic.
-
-Units: SI (m, s). Millimetres appear only at the hardware boundary in the Lab.
-
-What changed from v1 (24 Oct, NYK): one action = the cable DIFFERENCE D = L0 - L1 at a fixed
-mean payout (the motion the knockdown model was validated on, D in [-80, +80] mm); speed is a
-deployment setting (5, then 10, then 15 mm/s per cable) with small moves slowed down; the egg may
-leave the camera frame (actor gets a visibility flag and the last seen position); episodes may
-start from any robot shape (the robot stops where it knocked the egg and continues from there).
-
-Frames
-------
-Base frame C = the Lab's calibrated planar frame: origin at joint link_002 at rest, u = model +x
-(lateral), v = model -y (from the mount toward the tip at rest). Sign: D > 0 curls toward -u.
-
-Decision (waypoint semantics, matching the Lab motor owner)
------------------------------------------------------------
-  1. observe: settled encoders + fresh camera frame
-  2. raw action a -> clipped a in [-1, 1]
-  3. desired D  = 80 mm * a
-  4. limited D  = prev D + clip(desired - prev, +-8 mm); |limited - prev| < 0.5 mm -> no move
-  5. cables move to (mean + D/2, mean - D/2), each at a speed proportional to the step:
-        speed = clip(v_max * |D step| / 8 mm, 0.5 mm/s, v_max)      (v_max: 5 | 10 | 15 mm/s)
-     so every move takes the same time (4 mm / v_max) and a 1 mm step at 15 mm/s runs at 1.9 mm/s
-  6. wait for both axes to hold; next decision
+Frame C: joint link_002 at rest is the origin; u=model +x, v=model -y. D>0
+curls toward -u. Mean payout is 227.353314 mm. All arithmetic here uses SI units.
+V2 checkpoints have the same tensor shapes but were trained with a different
+speed rule; evaluate/fine-tune explicitly before exporting under this contract.
 """
 
 from __future__ import annotations
@@ -39,7 +20,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-CONTRACT_ID = "spirob-egg-knockdown/contract-v2"
+CONTRACT_ID = "spirob-egg-knockdown/contract-v3"
 
 # Knockdown model (assets/knockdown). Recomputed from the XML by tests.
 SOURCE_MODEL_SHA256 = "fe7d13cd476a"  # prefix of NYK's spirob_robot_k2_2.148_20261024_0318.xml (Lab model)
@@ -49,15 +30,15 @@ C_ORIGIN_MODEL_XY = (0.0, 0.21796009)
 
 @dataclass(frozen=True)
 class ActionSpec:
-    semantics: str = "difference_waypoint_v2"
+    semantics: str = "difference_waypoint_common_speed_v3"
     raw_clip: float = 1.0
     mean_m: float = MEAN_PAYOUT_M
     diff_limit_m: float = 0.080
     max_diff_step_m: float = 0.008
     deadband_diff_m: float = 0.0005
     min_cable_speed_m_s: float = 0.0005
-    cable_speed_max_m_s: float = 0.005       # deployment default (NYK: 5, then 10, then 15 mm/s)
-    train_cable_speed_range_m_s: tuple[float, float] = (0.0045, 0.015)
+    cable_speed_max_m_s: float = 0.005       # default common speed; hardware session limits still apply
+    train_cable_speed_range_m_s: tuple[float, float] = (0.005, 0.020)
     decision_period_s: float = 1.2           # sim; the rig takes move + settle (logged)
 
 
@@ -224,9 +205,12 @@ def diff_from_payouts(payout):
 
 
 def cable_speed(step_diff, vmax_m_s, spec: ActionSpec = DEFAULT.action):
-    """Per-cable speed for a decision whose difference changes by step_diff [m]: proportional to the
-    step, reaching vmax only for a full max_diff_step move (all moves take ~equal time)."""
-    return _clip(_abs(step_diff) / spec.max_diff_step_m * vmax_m_s, spec.min_cable_speed_m_s, vmax_m_s)
+    """The selected common speed for both motors, independent of waypoint size.
+
+    Zero/deadband commands are suppressed by the caller. Preserve array shape and
+    device for batched simulation; the motor owner still requires HOLD.
+    """
+    return step_diff * 0 + vmax_m_s
 
 
 # ---------------------------------------------------------------- observation assembly

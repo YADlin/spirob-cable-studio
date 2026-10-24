@@ -1,6 +1,6 @@
-"""RL egg-knockdown window (contract v2).
+"""RL egg-knockdown window (contract v3).
 
-Load policy · sample egg/pedestal colours · Dry run / Arm · cable speed 5|10|15 mm/s ·
+Load policy · sample egg/pedestal colours · Dry run / Arm · common cable speed 5–20 mm/s ·
 Run episode · STOP / HOLD · Auto-continue (human replaces the egg; the robot waits for a still scene).
 Single command owner: while an episode runs or auto-continue waits, the host locks manual motion and
 campaigns; STOP / HOLD aborts both. The window never enables, references or disconnects motors.
@@ -93,8 +93,8 @@ class RLWindow(QWidget):
         self.dry.toggled.connect(self.dry_changed); gl.addWidget(self.dry, 0, 0, 1, 2)
         self.arm_button = QPushButton("Arm motor commands…"); self.arm_button.setEnabled(False)
         self.arm_button.clicked.connect(self.arm); gl.addWidget(self.arm_button, 1, 0, 1, 2)
-        gl.addWidget(QLabel("Cable speed ceiling"), 2, 0)
-        self.speed = QComboBox(); self.speed.addItems(["5 mm/s", "10 mm/s", "15 mm/s"]); gl.addWidget(self.speed, 2, 1)
+        gl.addWidget(QLabel("Common cable speed"), 2, 0)
+        self.speed = QDoubleSpinBox(); self.speed.setRange(5.0, 20.0); self.speed.setSingleStep(0.5); self.speed.setSuffix(" mm/s"); self.speed.setValue(5.0); gl.addWidget(self.speed, 2, 1)
         self.auto = QCheckBox("Auto-continue: wait for a new egg + still scene, then start"); gl.addWidget(self.auto, 3, 0, 1, 2)
         gl.addWidget(QLabel("Placement"), 4, 0)
         self.placement = QComboBox(); self.placement.setEditable(True)
@@ -120,7 +120,7 @@ class RLWindow(QWidget):
         return bool(self.runner and (self.runner.active or self.runner.waiting))
 
     def vmax(self) -> float:
-        return float(self.speed.currentText().split()[0])
+        return self.speed.value()
 
     def dry_changed(self, on):
         if on:
@@ -131,7 +131,7 @@ class RLWindow(QWidget):
         if self.dry.isChecked():
             return
         if QMessageBox.question(self, "Arm RL motor commands",
-                                f"The policy will move the cable difference at up to {self.vmax():g} mm/s per cable "
+                                f"The policy will move the cable difference at {self.vmax():g} mm/s per cable "
                                 "within the session limits.\nKeep your hand near STOP / HOLD. Continue?") == QMessageBox.Yes:
             self.armed = True
             self.status.setText("ARMED: Run episode will move the robot.")
@@ -179,8 +179,8 @@ class RLWindow(QWidget):
                                   (C.MEAN_PAYOUT_M, C.MEAN_PAYOUT_M))
         camera = CameraMap.from_lab(self.host.comparison_setup, self.settings,
                                     self.host.config.get("model_check", {}).get("plane_height_m", 0.09))
-        egg = EggDetector(Colour(**self.settings.get("colour", {})), camera.pixels_per_m)
-        ped = PedestalDetector(Colour(**self.settings["pedestal_colour"]), camera.pixels_per_m) \
+        egg = EggDetector(Colour(**self.settings.get("colour", {})), camera.pixels_per_m_at(camera.feature_z_m))
+        ped = PedestalDetector(Colour(**self.settings["pedestal_colour"]), camera.pixels_per_m_at(C.DEFAULT.success.sim_support_top_z_m)) \
             if "pedestal_colour" in self.settings else None
         return cable, camera, egg, ped, rests, limits
 
