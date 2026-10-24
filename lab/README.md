@@ -6,6 +6,10 @@ The laptop owns the motors and recording. Version 0.9.1. This update has recorde
 
 **Start with the [Operating manual](docs/OPERATING_MANUAL.html)** for installation, daily use, setup jogs, individual/mean actuation, point inspection, recovery and shutdown. The same manual is available from the application.
 
+## RL egg knockdown (feature branch)
+
+An **RL** tab runs an exported `spirob-mjlab` knockdown policy (camera + encoders only) with Dry run, Arm, Run episode, Stop / Hold and Return to start. Workstation-only; no WSL redeploy. Read [docs/RL_KNOCKDOWN.md](docs/RL_KNOCKDOWN.md) before arming.
+
 ## Mixed campaigns and return to start (0.9.1)
 
 Use **Campaign → Difference sweep…** for uniformly spaced poses between two cable-difference extremes. Use **Mixed / random… → Mixed** to combine difference, cable 1 only, cable 2 only and independent two-cable moves in one seeded journey.

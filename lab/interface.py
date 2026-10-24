@@ -426,6 +426,7 @@ class Window(QMainWindow):
         self.sweep_snapshot = None
         self.surface_dialog = None
         self.campaign_window = None
+        self.rl_window = None
         self.remote_received = 0.
         self.selected_k = None
         self.scan_setup_revision = None
@@ -589,6 +590,11 @@ class Window(QMainWindow):
         self.campaign_status=StatusLabel('Acquire a complete journey, then fit shared k₂ and review individual poses.',3);campaign_layout.addWidget(self.campaign_status)
         campaign_note=QLabel('Draft 73 poses or generate a random journey. Simulate and approve before Start.\nChoose session duration before Connect. One JPEG per held pose; STOP aborts the sequence.')
         campaign_note.setWordWrap(True);campaign_layout.addWidget(campaign_note);campaign_layout.addStretch()
+        rl_page=QWidget();rl_layout=QVBoxLayout(rl_page);self.motor_tabs.addTab(rl_page,'RL')
+        rl_button=QPushButton('Egg knockdown policy · dry run / arm / episodes…');rl_layout.addWidget(rl_button)
+        rl_button.clicked.connect(self.open_rl)
+        rl_note=QLabel('Camera + encoder policy exported from spirob-mjlab. Dry run first; Arm only with the operator at STOP / HOLD.\nWhile an episode runs, manual motion and campaigns are locked.')
+        rl_note.setWordWrap(True);rl_layout.addWidget(rl_note);rl_layout.addStretch()
         if demo:
             self.steps=QComboBox();self.steps.addItems(['Hold 1','Hold 2','Hold 3','Hold 4']);self.steps.setCurrentIndex(1)
             session_controls.addWidget(QLabel('Recorded pose'),6,0);session_controls.addWidget(self.steps,6,1,1,3)
@@ -715,6 +721,15 @@ class Window(QMainWindow):
 
     def campaign_active(self):
         return bool(self.campaign_window and self.campaign_window.active)
+
+    def open_rl(self):
+        if self.rl_window is None:
+            from rl.rl_window import RLWindow
+            self.rl_window=RLWindow(self)
+        self.rl_window.show();self.rl_window.raise_();self.rl_window.activateWindow()
+
+    def rl_active(self):
+        return bool(self.rl_window and self.rl_window.active)
 
     def open_setup(self):
         from display_setup import DisplaySetup
@@ -1044,6 +1059,14 @@ class Window(QMainWindow):
         if self.campaign_active():
             if action=="hold":self.campaign_window.abort("User pressed Stop / Hold");return
             self.command_status.setText("Campaign owns motion. Stop the campaign before using manual motion.");return
+        if self.rl_active():
+            if action=="hold":
+                self.rl_window.abort("User pressed Stop / Hold")  # runner sends hold itself when armed
+                if self.session:
+                    try:self.session.send('hold')
+                    except Exception as exc:self.command_status.setText(str(exc))
+                return
+            self.command_status.setText("RL episode owns motion. Stop / Hold first.");return
         try:
             self.session.send(action, **values)
             self.command_status.setText('Sent: '+action+'; waiting for laptop acknowledgement')
@@ -1385,6 +1408,7 @@ class Window(QMainWindow):
 
     def disconnect(self):
         if self.campaign_window:self.campaign_window.begin_shutdown()
+        if self.rl_window:self.rl_window.abort('Disconnected')
         if self.closing:
             return
         self.closing = True
@@ -1488,6 +1512,7 @@ class Window(QMainWindow):
                 except queue.Empty:
                     break
                 if self.campaign_window:self.campaign_window.motor_event(event)
+                if self.rl_window:self.rl_window.motor_event(event)
                 if event['type'] == 'status':
                     self.remote_received=time.monotonic()
                     self.remote = event
@@ -1584,6 +1609,7 @@ class Window(QMainWindow):
             elif kind == 'scan_failed':
                 self.scan_busy = False; self.command_status.setText(value)
         if self.campaign_window:self.campaign_window.tick()
+        if self.rl_window:self.rl_window.tick()
         camera_item=self.last_video or self.latest
         fresh = self.demo or bool(camera_item and 'rgb' in camera_item and
             camera_item['displayed_age_s'] + time.monotonic() - camera_item['received'] < self.config['live']['max_age_s'])
@@ -1638,7 +1664,7 @@ class Window(QMainWindow):
         self.capture_pose_button.setEnabled(self.sweep_result is not None and self.sweep_snapshot is not None and not self.scan_busy)
         self.apply_scan_button.setEnabled(bool(self.sweep_result and self.preview and
             self.sweep_result['setup_revision']==self.setup_revision and self.selected_k is not None))
-        active_campaign=self.campaign_active()
+        active_campaign=self.campaign_active() or self.rl_active()
         self.alignment_button.setEnabled(not active_campaign)
         self.analysis_mode_box.setEnabled(not active_campaign)
         if active_campaign:

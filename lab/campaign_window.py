@@ -263,6 +263,8 @@ class CampaignWindow(QDialog):
     def start(self):
         if self.quiescing:return
         if self.active or self.busy:return
+        if getattr(self.host,'rl_active',lambda:False)():
+            self.set_status('An RL episode owns the motors. Stop it before starting a campaign.');return
         try:
             live_plan,item=self.build_plan(True)
             from campaign_preview import require_review

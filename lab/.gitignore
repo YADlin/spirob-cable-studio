@@ -18,3 +18,5 @@ data/*
 /results/*
 !/results/observations.json
 !/config.json
+rl_vision.json
+logs/rl_dry/

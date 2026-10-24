@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mujoco model="SpiRob_Pedestal">
+  <compiler angle="radian" inertiafromgeom="true" autolimits="true" />
+  <default>
+    <geom density="1200" friction="0.8 0.05 0.005" rgba="0.25 0.25 0.25 1" contype="1" conaffinity="1" />
+  </default>
+  <worldbody>
+    <body name="pedestal" pos="0 0 0">
+      <geom name="ped_shaft" type="cylinder" pos="0 0 0.0285" size="0.008 0.03" contype="1" conaffinity="1" />
+      <geom name="ped_cup" type="box" pos="0 0 0.06" size="0.014 0.014 0.004" contype="1" conaffinity="1" />
+    </body>
+  </worldbody>
+</mujoco>

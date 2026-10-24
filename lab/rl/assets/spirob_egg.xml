@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mujoco model="SpiRob_Egg">
+  <compiler angle="radian" inertiafromgeom="true" autolimits="true" />
+  <default>
+    <geom density="300" friction="1.2 0.05 0.005" rgba="0.97 0.93 0.80 1.0"
+          solref="0.01 1" solimp="0.9 0.95 0.05" contype="1" conaffinity="1" />
+  </default>
+  <worldbody>
+    <body name="egg" pos="0 0 0">
+      <joint name="egg_free" type="free" damping="0" stiffness="0" />
+      <geom name="egg_body" type="cylinder" size="0.005 0.025" contype="1" conaffinity="1" />
+      <geom name="egg_base_core_x" type="box" pos="0 0 -0.027" size="0.009 0.012 0.002" contype="1" conaffinity="1"/>
+      <geom name="egg_base_core_y" type="box" pos="0 0 -0.027" size="0.012 0.009 0.002" contype="1" conaffinity="1"/>
+      <geom name="egg_base_corner_mx_my" type="cylinder" pos="-0.009 -0.009 -0.027" size="0.003 0.002" contype="1" conaffinity="1" />
+      <geom name="egg_base_corner_mx_py" type="cylinder" pos="-0.009 0.009 -0.027" size="0.003 0.002" contype="1" conaffinity="1" />
+      <geom name="egg_base_corner_px_my" type="cylinder" pos="0.009 -0.009 -0.027" size="0.003 0.002" contype="1" conaffinity="1" />
+      <geom name="egg_base_corner_px_py" type="cylinder" pos="0.009 0.009 -0.027" size="0.003 0.002" contype="1" conaffinity="1" />
+      <geom name="egg_cap" type="sphere" pos="0 0 0.012" size="0.02" contype="1" conaffinity="1" />
+    </body>
+  </worldbody>
+</mujoco>
