@@ -1,7 +1,7 @@
 """RL egg-knockdown mode (contract v2): software verification without hardware.
 
   1. Cable map == Comparator.controls (all wirings); camera map round trips.
-  2. Detectors on synthetic frames: green egg next to the white robot on brown floor; blue empty cup.
+  2. Detectors on synthetic frames: black egg next to the white robot and its shadow on brown floor; white empty cup.
   3. Policy bundle verification (valid; wrong robot model; tampered weights).
   4. Closed loop through the MuJoCo twin with a SYNTHETIC heuristic policy: knockdown from straight and
      curled starts, all cable wirings, 5/10/15 mm/s ceilings, small steps slower than the ceiling.
@@ -75,21 +75,24 @@ cam = CameraMap.from_lab(SETUP)
 check("camera similarity round trip", np.allclose(cam.px_to_c(cam.c_to_px([0.08, 0.12])), [0.08, 0.12], atol=1e-12))
 
 # ------------------------------------------------------------------ 2. detectors
-egg_colour = Colour.sample(np.full((40, 40, 3), EGG, np.uint8), (20, 20))
-cup_colour = Colour.sample(np.full((40, 40, 3), CUP, np.uint8), (20, 20))
+_rng = np.random.default_rng(7)
+_patch = lambda rgb: np.clip(np.full((40, 40, 3), rgb, float) + _rng.normal(0, 3.0, (40, 40, 3)), 0, 255).astype(np.uint8)  # noqa: E731
+egg_colour = Colour.sample(_patch(EGG), (20, 20))       # noisy, like a real click
+cup_colour = Colour.sample(_patch(CUP), (20, 20))
 det = EggDetector(egg_colour, SETUP["pixels_per_m"])
 ped = PedestalDetector(cup_colour, SETUP["pixels_per_m"])
 cable = CableMap.from_lab(SETUP, PARAMS, RESTS, MEAN)
 tw = Twin(cable, cam, (0.08, 0.11))
 d0 = det.detect(tw.render())
 err = np.inf if d0 is None else np.linalg.norm(np.asarray(d0.px) - cam.c_to_px(tw.egg_uv_true()))
-check("green egg found next to the white robot on brown floor", err < 2.0, f"err {err:.2f} px")
-check("blue cup hidden under the egg is not reported", ped.detect(tw.render()) is None)
+check("black egg found next to the white robot and its shadow on brown floor", err < 2.0, f"err {err:.2f} px")
+check("white cup hidden under the egg is not reported", ped.detect(tw.render()) is None)
 tw.place_new_egg((0.08, 0.11)); tw.d.qpos[tw.egg_qadr:tw.egg_qadr + 3] = [0.5, 0.5, 0.02]
 import mujoco  # noqa: E402
 mujoco.mj_forward(tw.m, tw.d)
 c0 = ped.detect(tw.render())
-check("empty blue cup detected at the pedestal", c0 is not None and np.linalg.norm(cam.px_to_c(c0.px) - [0.08, 0.11]) < 0.003)
+check("empty white cup detected at the pedestal", c0 is not None and np.linalg.norm(cam.px_to_c(c0.px) - [0.08, 0.11]) < 0.003)
+check("no egg reported when only the robot, its shadow and the white cup are in view", det.detect(tw.render()) is None)
 
 # ------------------------------------------------------------------ 3. bundles
 LAB_MODEL = ROOT / "model" / "spirob_robot.xml"
@@ -194,7 +197,7 @@ check("stale frames -> FAULT_STALE", r.outcome == "FAULT_STALE", r.outcome)
 r, tw = episode((0.08, 0.11), fault="hide_egg", max_s=60)
 vis = [json.loads(l)["egg_visible"] for l in (r.log.root / "decisions.jsonl").read_text().splitlines()]
 check("egg hidden: policy continues with visible=0, never SUCCESS by vision",
-      r.outcome in ("UNKNOWN", "SUCCESS") and 0.0 in vis and (r.outcome != "SUCCESS" or "empty blue cup" in r.message),
+      r.outcome in ("UNKNOWN", "SUCCESS") and 0.0 in vis and (r.outcome != "SUCCESS" or "empty white cup" in r.message),
       f"{r.outcome}: {r.message[:70]}")
 r, tw = episode((0.08, 0.11), dry_run=True, max_s=8.0)
 check("dry run sends no motor commands", not any(c["action"] in ("independent", "hold") for c in tw.commands)

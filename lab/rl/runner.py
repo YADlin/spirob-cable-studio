@@ -398,7 +398,7 @@ class KnockdownRunner:
         if cup_here and not egg_near:
             self.empty_since = self.empty_since or now
             if now - self.empty_since >= s.hw_empty_cup_s:
-                return self._success(item, "empty blue cup visible at the egg's start position")
+                return self._success(item, "empty white cup visible at the egg's start position")
         else:
             self.empty_since = None
         return False

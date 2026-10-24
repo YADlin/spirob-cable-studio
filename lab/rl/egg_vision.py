@@ -1,9 +1,11 @@
 """Simple, reviewable colour detectors for the overhead camera (no learning).
 
-Recommended print colours (contrast with the white robot and brown cardboard floor):
-  egg      saturated green  (sim rgba 0.16 0.67 0.31, #29AB4F)
-  pedestal saturated blue   (sim rgba 0.12 0.35 0.78, #1F59C7)
-Each colour model is an HSV box sampled by the operator clicking the object once.
+Print colours (only white and black PLA are available):
+  egg      black PLA, matte  (sim rgba 0.06 0.06 0.06)  - dark against the brown floor and the white robot
+  pedestal white PLA         (sim rgba 0.93 0.93 0.93)  - never confused with the black egg
+Each colour model is an HSV box sampled by the operator clicking the object once. For grey-scale
+objects (black, white) hue is meaningless and saturation is noisy, so those channels are opened up
+and the box is decided by brightness (and low saturation for white).
 
 Detectors never guess: no matching component -> None.
 SceneStillness reports how long consecutive frames have been nearly identical (no hand moving).
@@ -21,6 +23,8 @@ import numpy as np
 
 CAP_RADIUS_M = 0.020      # egg cap sphere radius
 CUP_SIDE_M = 0.028        # pedestal cup square side
+DARK_V = 80               # sampled 95th-percentile brightness below this -> treat as black
+GREY_S = 50               # sampled 95th-percentile saturation below this -> treat as white/grey
 
 
 @dataclass
@@ -42,8 +46,13 @@ class EggColour:      # kept for compatibility: any HSV colour box
             raise ValueError("Click closer to the centre of the object")
         lo, hi = np.percentile(vals, 5, axis=0), np.percentile(vals, 95, axis=0)
         dh, ds, dv = margin
-        return cls(int(max(0, lo[0] - dh)), int(min(179, hi[0] + dh)), int(max(0, lo[1] - ds)),
-                   int(min(255, hi[1] + ds)), int(max(0, lo[2] - dv)), int(min(255, hi[2] + dv)))
+        h_lo, h_hi = int(max(0, lo[0] - dh)), int(min(179, hi[0] + dh))
+        s_lo, s_hi = int(max(0, lo[1] - ds)), int(min(255, hi[1] + ds))
+        if hi[2] < DARK_V:                       # black: hue and saturation are noise; use brightness only
+            h_lo, h_hi, s_lo, s_hi = 0, 179, 0, 255
+        elif hi[1] < GREY_S:                     # white/grey: any hue, low saturation
+            h_lo, h_hi, s_lo = 0, 179, 0
+        return cls(h_lo, h_hi, s_lo, s_hi, int(max(0, lo[2] - dv)), int(min(255, hi[2] + dv)))
 
     def mask(self, rgb: np.ndarray) -> np.ndarray:
         hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
@@ -109,7 +118,7 @@ class EggDetector(BlobDetector):
 
 
 class PedestalDetector(BlobDetector):
-    """Blue cup seen from above (visible only when the egg is not on it)."""
+    """White cup seen from above (visible only when the egg is not on it)."""
 
     def __init__(self, colour: Colour, pixels_per_m: float, **kw):
         kw.setdefault("area_ratio", (0.4, 1.8))

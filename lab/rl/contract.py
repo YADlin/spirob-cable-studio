@@ -97,7 +97,7 @@ class SuccessSpec:
     sim_fall_margin_m: float = 0.005
     hw_off_radius_m: float = 0.035           # egg seen this far from its start ...
     hw_confirm_s: float = 0.5                # ... for this long
-    hw_empty_cup_s: float = 0.7              # or: blue cup visible at the start, no egg near it, this long
+    hw_empty_cup_s: float = 0.7              # or: empty (white) cup visible at the start, no egg near it, this long
     hw_cup_match_m: float = 0.015
 
 

@@ -3,7 +3,7 @@
 Emulates exactly what the runner consumes from the real Lab: the laptop status event (`remote`),
 camera items (RGB frame + encoder rows) and the command channel (`send`). Physical cable lengths
 become model controls through the SAME CableMap as the runner, so a wrong mapping/sign makes the twin
-robot curl the wrong way. The synthetic overhead image (brown floor, white robot, blue cup, green egg,
+robot curl the wrong way. The synthetic overhead image (brown floor, white robot and its shadow, white cup, black egg,
 optional hand) goes through the SAME CameraMap and detectors.
 
 A software test harness, not evidence of physical transfer.
@@ -25,7 +25,9 @@ LAB = Path(__file__).resolve().parents[1]
 ASSETS = Path(__file__).resolve().parent / "assets"
 EGG_SETTLED_Z = 0.0750
 PEDESTAL_Z = 0.002
-FLOOR, ROBOT, CUP, EGG, HAND = (150, 112, 72), (238, 238, 236), (31, 89, 199), (41, 171, 79), (205, 160, 130)
+FLOOR, ROBOT, CUP, EGG, HAND = (150, 112, 72), (238, 238, 236), (236, 236, 236), (16, 16, 16), (205, 160, 130)
+SHADOW = (92, 68, 44)        # robot shadow on the cardboard: darker brown, must not look like the black egg
+IMAGE_NOISE = 3.0            # grey-level noise (sigma) so colour sampling sees realistic pixels
 
 
 def build_scene(egg_uv, model_xml: Path, dt=1e-3):
@@ -158,6 +160,7 @@ class Twin:
         half = int(0.014 * ppm)
         cv2.rectangle(img, (c[0] - half, c[1] - half), (c[0] + half, c[1] + half), CUP, -1)
         egg_below = self.egg_z() < 0.04
+        cv2.polylines(img, [pts + np.int32(round(0.012 * ppm))], False, SHADOW, 25)
         if not egg_below:
             cv2.polylines(img, [pts], False, ROBOT, 25)
         if self.fault != "hide_egg":
@@ -168,7 +171,8 @@ class Twin:
         if self.hand_uv is not None:
             hp = self._px(self.hand_uv)
             cv2.ellipse(img, hp, (int(0.05 * ppm), int(0.09 * ppm)), 20, 0, 360, HAND, -1)
-        return img
+        noise = self.rng.normal(0, IMAGE_NOISE, img.shape)
+        return np.clip(img + noise, 0, 255).astype(np.uint8)
 
     def egg_in_frame(self) -> bool:
         px = self.camera.c_to_px(self.egg_uv_true())

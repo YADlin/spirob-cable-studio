@@ -8,8 +8,8 @@ decision is one ordinary `independent` move of at most 8 mm in D, through the
 existing motor owner and its limits. Workstation-only change: **no WSL redeploy**.
 
 ```
-camera ─► green egg detector ─► egg (u,v), visible ┐
-camera ─► blue cup detector  ─► empty-cup check     │ (success rule 2)
+camera ─► black egg detector ─► egg (u,v), visible ┐
+camera ─► white cup detector ─► empty-cup check     │ (success rule 2)
 encoders ─► D = payout0 − payout1 ─────────────────┼─► 7 numbers ─► policy ─► new D ─► L0 = 227.35 + D/2
 previous action ───────────────────────────────────┘                               L1 = 227.35 − D/2
 ```
@@ -26,9 +26,13 @@ the ceiling, a 1 mm step at 1/8 of it (e.g. 1.9 mm/s at 15 mm/s), never below
    `sha256sum model/spirob_robot.xml` → must start with `fe7d13cd476a`.
    The Lab refuses a policy exported against a different file.
 2. **Print the egg and pedestal** from the drawing (`spirob-mjlab/docs/knockdown/egg_pedestal.png`):
-   egg green (#29AB4F), pedestal blue (#1F59C7). Pedestal cup top 46 mm above the
+   egg in **black** PLA (matte if possible), pedestal in **white** PLA. Pedestal cup top 46 mm above the
    table (20 mm lower than the original, so the drooping tip meets the egg, not the
    cup). Fix the pedestal to the table. Egg ≈ 12 g.
+   Why this way round: a black egg stays a separate dark blob even when the white robot
+   touches it, and an empty white cup can never be mistaken for the black egg. Avoid
+   strong side lighting: a hard black robot shadow is the only thing that could look
+   like the egg (the detector also checks size and roundness).
 3. **Camera.** Lens 321 mm above the table, looking down, centre 140 mm from the
    base point along the rest axis (`rig_geometry.png`). After any camera move, redo
    the Lab camera alignment before RL work.
@@ -40,15 +44,15 @@ the ceiling, a 1 mm step at 1/8 of it (e.g. 1.9 mm/s at 15 mm/s), never below
    Check the alignment overlay.
 2. **RL** tab → **Load exported policy folder…**. It is refused if the contract,
    robot model hash, pose table or weights do not match.
-3. **Sample EGG colour** (click the green egg), **Sample PEDESTAL colour** (click the
-   empty blue cup). Enter camera height 0.321 → **Save camera settings**.
+3. **Sample EGG colour** (click the black egg), **Sample PEDESTAL colour** (click the
+   empty white cup). Enter camera height 0.321 → **Save camera settings**.
 4. **Dry run first** (default). Placement `free` (anywhere) or P01–P12 (cross on
    screen). The egg must be > 25 mm from the robot. **Run episode** computes and logs
    decisions without moving. **STOP / HOLD** ends it.
 5. **Armed run:** untick Dry run → **Arm motor commands…** → confirm → choose the speed
    → **Run episode**. Keep a hand near **STOP / HOLD**. The episode ends on success,
    30 decisions, a fault, or UNKNOWN.
-   Success = egg seen > 35 mm from its start for 0.5 s, **or** the empty blue cup seen
+   Success = egg seen > 35 mm from its start for 0.5 s, **or** the empty white cup seen
    at the start position with no egg near it for 0.7 s.
 6. **Next egg.** The robot stays where it stopped. Either press **Run episode** again
    after placing the egg, or tick **Auto-continue**: put the egg on the pedestal at a

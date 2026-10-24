@@ -149,7 +149,7 @@ class RLWindow(QWidget):
 
     def start_pick(self, key):
         self.pick = key
-        self.vision_status.setText("Click the centre of the " + ("egg" if key == "colour" else "empty blue cup"))
+        self.vision_status.setText("Click the centre of the " + ("egg" if key == "colour" else "empty white cup"))
 
     def clicked(self, px):
         if not self.pick or not self.items:
