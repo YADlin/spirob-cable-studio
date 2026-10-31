@@ -34,7 +34,48 @@ def inside(root, relative):
     return path
 
 
-def make_packet(capture, now=None):
+def make_feedback(capture, now=None):
+    """Small read-only encoder response; never selects/encodes a camera image.
+
+    Read completed motor-log rows, preserving the original sample timestamps.
+    Request receipt is NOT a new sample. The client adds transport/wait time.
+    """
+    if capture is None:
+        return {'state': 'WAITING', 'message': 'No active session'}
+    _, run = capture.snapshot()
+    result = dict(session=capture.session_id, feedback_only=True,
+                  feedback_generated_s=time.monotonic() if now is None else now,
+                  motor=[], motor_active=False, motor_states=[None, None],
+                  motor_age_s=[None, None], encoder_t_s=None, encoder_age_s=None)
+    if run is None or 'motor_log' not in run or 'motor_origin_s' not in run:
+        return result
+    rows = csv_tail(inside(capture.path.parent, run['motor_log']) / 'samples.csv', limit=32768)
+    states, motor = [None, None], []
+    for row in rows:
+        axis = int(row['axis'])
+        states[axis] = row['state']
+        if row['absolute_mm'] and row['state'] in ('HOLDING', 'MOVING'):
+            motor.append(dict(axis=axis,
+                t_s=run['motor_origin_s']+(float(row['read_start_s'])+float(row['read_end_s']))/2,
+                length_mm=float(row['absolute_mm']),
+                target_mm=float(row['target_absolute_mm']) if row['target_absolute_mm'] else None,
+                state=row['state'],
+                velocity_mm_s=float(row['velocity_mm_s']) if row['velocity_mm_s'] else None))
+    latest = [max((r['t_s'] for r in motor if r['axis'] == a), default=None) for a in (0, 1)]
+    encoder_t = min(latest) if all(v is not None for v in latest) else None
+    now = time.monotonic() if now is None else now
+    origin = run['coordinator_monotonic_s'] + run['clock_before']['best']['offset_s']
+    result.update(feedback_generated_s=now,
+        motor_states=states, motor_active=all(s in ('HOLDING', 'MOVING') for s in states),
+        motor_age_s=[None if v is None else now-origin-v for v in latest],
+        encoder_t_s=encoder_t, encoder_age_s=None if encoder_t is None else now-origin-encoder_t,
+        motor=[r for r in motor if encoder_t is None or r['t_s'] >= encoder_t-2],
+        rest_lengths_mm=run['trial']['rest_lengths_mm'],
+        clock_uncertainty_s=run['clock_before']['network_uncertainty_s'])
+    return result
+
+
+def make_packet(capture, now=None, latest_frame=False):
     if capture is None:
         return {'state': 'WAITING', 'message': 'Camera service ready; start a trial or camera check.'}
     status = capture.status(renew=False)
@@ -75,7 +116,11 @@ def make_packet(capture, now=None):
     # Pick a frame bracketed by both encoder streams rather than extrapolating.
     eligible = [f for f in frames if all(t is not None and frame_t(f) <= t for t in latest)]
     feedback_fresh = all(v is not None and now-(origin+offset+v)<.65 for v in latest)
-    chosen = eligible[-1] if eligible and feedback_fresh else frames[-1]
+    chosen = frames[-1] if latest_frame else (eligible[-1] if eligible and feedback_fresh else frames[-1])
+    if latest_frame:
+        encoder_t = min(latest) if all(v is not None for v in latest) else None
+        result.update(encoder_t_s=encoder_t,
+            encoder_age_s=None if encoder_t is None else now-(origin+offset+encoder_t))
     t = frame_t(chosen)
     image = chosen['jpeg']
     if len(image) > 8 * 1024 * 1024:

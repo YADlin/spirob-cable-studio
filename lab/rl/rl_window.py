@@ -9,6 +9,7 @@ campaigns; STOP / HOLD aborts both. The window never enables, references or disc
 from __future__ import annotations
 
 import math
+import json
 import time
 from collections import deque
 from pathlib import Path
@@ -26,6 +27,7 @@ from rl.egg_vision import Colour, EggDetector, PedestalDetector, load_settings, 
 from rl.hardware_io import CableMap, CameraMap
 from rl.placements import PLACEMENTS, TARGET_TOLERANCE_M
 from rl.runner import KnockdownRunner, PolicyBundle, straighten_command
+from rl.live_feed import LiveFeed
 
 LAB = Path(__file__).resolve().parents[1]
 SETTINGS = LAB / "rl_vision.json"          # local (git-ignored)
@@ -65,6 +67,8 @@ class RLWindow(QWidget):
         self.settings = load_settings(SETTINGS)
         self.items = deque(maxlen=12)
         self.last_t = None
+        self.feed = LiveFeed()
+        self.feed_context = None
         self.armed = False
         self.pick = None
         self.on_target = None
@@ -198,6 +202,11 @@ class RLWindow(QWidget):
                 raise ValueError("Connect the motor session first")
             if "colour" not in self.settings:
                 raise ValueError("Sample the egg colour first")
+            session = self.host.session or self.host.setup_session
+            context = (id(session), json.dumps([self.settings, self.host.comparison_setup,
+                self.host.config.get("model_check", {})], sort_keys=True))
+            if session is None or context != self.feed_context:
+                raise ValueError("Wait for fresh detections with the current camera settings")
             pid = self.placement.currentText().strip() or "free"
             if pid in PLACEMENTS and self.on_target is False:
                 raise ValueError(f"Egg is not within {TARGET_TOLERANCE_M*1000:.0f} mm of {pid}; move it onto the cross")
@@ -208,8 +217,16 @@ class RLWindow(QWidget):
                                               self.host.session.send if self.host.session else self._no_send, log_root,
                                               dry_run=self.dry.isChecked(), vmax_mm_s=self.vmax(),
                                               auto_continue=self.auto.isChecked())
+            item, error = self.feed.snapshot()
+            if item is None or item["displayed_age_s"] > min(0.5, self.host.config["live"]["max_age_s"]):
+                raise ValueError(error or "Wait for a fresh RL camera frame")
+            key = (item["packet"]["session"], item["packet"]["frame_index"])
+            if not self.items or self.last_t != key:
+                self.items.append(item); self.last_t = key
+            else:
+                self.items[-1] = item
             self.runner.start_episode(self.host.remote, list(self.items), pid, self.note.text())
-            self.status.setText(self.runner.message)
+            self.status.setText(self.runner.message + (" [camera-only dry run: no encoders]" if self.runner.camera_only else ""))
         except Exception as exc:
             self.status.setText("Episode not started: " + str(exc))
 
@@ -251,17 +268,45 @@ class RLWindow(QWidget):
             self.runner.event(event)
 
     def tick(self):
-        item = self.host.manual_source()
-        if item is not None and "rgb" in item:
-            t = item["packet"].get("t_s")
+        if not self.isVisible():
+            self.feed.pause(); self.feed_context = None
+            return
+        session = self.host.session or self.host.setup_session
+        if session is None:
+            self.feed.pause(); self.feed_context = None
+            self.items.clear(); self.last_t = None
+        else:
+            context = (id(session), json.dumps([self.settings, self.host.comparison_setup,
+                self.host.config.get("model_check", {})], sort_keys=True))
+            if self.active and context != self.feed_context:
+                self.abort("Camera session or settings changed")
+            if context != self.feed_context:
+                try:
+                    _, camera, egg, ped, *_ = self.maps()
+                    self.feed.configure(session.url, session.token, camera, egg, ped)
+                    self.feed_context = context
+                    self.items.clear(); self.last_t = None
+                except Exception as exc:
+                    self.feed.pause()
+                    self.vision_status.setText("RL camera: " + str(exc))
+        item, error = self.feed.snapshot()
+        redraw = False
+        if item is not None:
+            t = (item["packet"]["session"], item["packet"]["frame_index"])
             if t != self.last_t:
                 self.items.append(item); self.last_t = t
-                self.draw(item)
+                redraw = True
+            elif self.items:
+                self.items[-1] = item
+        elif error:
+            self.vision_status.setText(error)
         if self.runner and (self.runner.active or self.runner.waiting):
             self.runner.tick(self.host.remote, time.monotonic() - self.host.remote_received, item,
                              max_age=min(0.5, self.host.config["live"]["max_age_s"]),
                              max_gap=self.host.config["live"]["max_input_gap_s"])
-            self.status.setText(self.runner.message)
+            self.status.setText(self.runner.message + (" [camera-only dry run: no encoders]" if self.runner.camera_only else ""))
+        if redraw:
+            self.draw(item)
         self._sync_history()
 
     def _sync_history(self):
@@ -296,8 +341,8 @@ class RLWindow(QWidget):
         rgb = item["rgb"].copy()
         if "colour" in self.settings:
             try:
-                _, camera, egg, ped, *_ = self.maps()
-                det = egg.detect(rgb)
+                camera = item["rl_camera"]
+                det = item["rl_egg"]
                 text = "Egg not detected"
                 target = PLACEMENTS.get(self.placement.currentText().strip())
                 if det:
@@ -310,8 +355,8 @@ class RLWindow(QWidget):
                         text += f" | {self.placement.currentText()} offset {err*1000:.0f} mm" + (" ✓" if self.on_target else "")
                 else:
                     self.on_target = None
-                if ped is not None:
-                    cd = ped.detect(rgb)
+                if "pedestal_colour" in self.settings:
+                    cd = item["rl_cup"]
                     if cd:
                         cv2.rectangle(rgb, (int(cd.px[0]) - 25, int(cd.px[1]) - 25), (int(cd.px[0]) + 25, int(cd.px[1]) + 25),
                                       (0, 120, 255), 3)
@@ -321,6 +366,7 @@ class RLWindow(QWidget):
                     cv2.drawMarker(rgb, tp, (0, 200, 0) if self.on_target else (255, 160, 0), cv2.MARKER_CROSS, 60, 4)
                 if self.runner and self.runner.waiting:
                     text += " | " + self.runner.message
+                text += f" | camera age {item['displayed_age_s']:.3f} s"
                 self.vision_status.setText(text)
             except Exception as exc:
                 self.vision_status.setText("Vision: " + str(exc))
@@ -333,4 +379,5 @@ class RLWindow(QWidget):
     def closeEvent(self, e):
         if self.active:
             self.abort("RL window closed")
+        self.feed.pause(); self.feed_context = None
         super().closeEvent(e)

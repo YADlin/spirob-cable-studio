@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 import uuid
 from collections import deque
@@ -31,6 +32,7 @@ from rl import contract as C
 from rl.egg_vision import SceneStillness
 from rl.hardware_io import CableMap, CameraMap
 from rl.numpy_policy import NumpyPolicy
+from rl.live_feed import encoder_packet, age_item
 
 LAB_DIR = Path(__file__).resolve().parents[1]
 START_FRAMES = 5
@@ -38,6 +40,12 @@ START_SPREAD_M = 0.002
 REGION_TOLERANCE_M = 0.005
 SETTLE_WINDOW_S = 0.3
 ACK_TIMEOUT_S = 3.0
+# Fresh data is mandatory for policy decisions and success/settle checks.
+# A bounded move is closed-loop inside the native motor owner. A brief delivery
+# delay does not cancel that move; loss beyond this absolute age DOES send Hold.
+# These are end-to-end delivery limits, not the interpolation gap or serial timeout.
+SENSOR_DELIVERY_TIMEOUT_S = 1.0
+FEEDBACK_RECOVERY_TIMEOUT_S = 1.0
 LAB_MIN_SPEED_MM_S = 0.05
 RETRY_MOVE_M = 0.020          # after a non-success, the egg must be moved this far before auto-start
 
@@ -112,6 +120,10 @@ class EpisodeLog:
         with (self.root / "decisions.jsonl").open("a") as f:
             f.write(json.dumps(row, default=_jsonable) + "\n")
 
+    def event(self, row: dict):
+        with (self.root / "motor_events.jsonl").open("a") as f:
+            f.write(json.dumps(row, default=_jsonable) + "\n")
+
     def frame(self, name: str, rgb):
         try:
             import cv2
@@ -181,7 +193,8 @@ class KnockdownRunner:
     # ------------------------------------------------------------------ measurements
     def _lengths_mm(self, item) -> np.ndarray:
         from analysis import inputs_at
-        lengths, _ = inputs_at(item["packet"], item["packet"]["t_s"], 0.65)
+        packet = encoder_packet(item)
+        lengths, _ = inputs_at(packet, packet["t_s"], 0.65)
         return np.asarray(lengths)
 
     def _diff_m(self, item) -> float:
@@ -190,7 +203,7 @@ class KnockdownRunner:
         return float(C.diff_from_payouts(self.cable.physical_to_model_m(self._lengths_mm(item)))[0])
 
     def _egg_uv(self, item):
-        det = self.egg_det.detect(item["rgb"])
+        det = item["rl_egg"] if item.get("rl_detected") else self.egg_det.detect(item["rgb"])
         return (None, None) if det is None else (self.camera.px_to_c(det.px), det)
 
     # ------------------------------------------------------------------ episode lifecycle
@@ -225,6 +238,11 @@ class KnockdownRunner:
         self.decision_index = 0
         self.last_command_t = -1e9
         self.target_mm = None if self.camera_only else [float(x) for x in self._lengths_mm(item)]
+        self.camera_max_age = 0.5
+        self.encoder_max_age = 0.65
+        self.feedback_wait_started = None
+        self.feedback_wait_reason = None
+        self.feedback_wait_count = 0
         self.off_since = self.empty_since = None
         self.command_id = None
         eid = time.strftime("%Y%m%dT%H%M%S") + "_" + uuid.uuid4().hex[:6]
@@ -234,10 +252,16 @@ class KnockdownRunner:
             policy=self.bundle.manifest, contract_id=C.CONTRACT_ID, contract_sha256=sha(Path(C.__file__)),
             cable_map=self.cable.__dict__, camera_map=self.camera.__dict__, egg_start_uv_m=start,
             start_diff_m=d_meas, rests_mm=self.rests_mm, limits=self.limits, started_wall=time.time(),
-            started_monotonic=self.clock(), outcome=None))
+            started_monotonic=self.clock(), outcome=None,
+            runtime_sources={name: sha(Path(__file__).with_name(name))
+                             for name in ("runner.py", "live_feed.py", "rl_window.py")}))
         self.log.frame("start.jpg", item["rgb"])
-        if not self.dry_run:
-            self._send_quiet("record", enabled=True)
+        self.last_perception_key = None
+        self.log.close(image_recording="Start/decision/success JPEGs; continuous recording is operator-controlled",
+                       feedback_policy=dict(camera_decision_max_age_s=0.5, encoder_decision_max_age_s=0.65,
+                           delivery_stop_age_s=SENSOR_DELIVERY_TIMEOUT_S,
+                           recovery_wait_limit_s=FEEDBACK_RECOVERY_TIMEOUT_S,
+                           delayed_data_behavior="No new decision, settle or success check; existing bounded move remains under native control"))
         self.outcome = None
         self.last_start = start
         self._update("observe", f"Episode {eid} started ({'DRY RUN — no motor writes' if self.dry_run else 'ARMED'}), "
@@ -262,12 +286,11 @@ class KnockdownRunner:
     def finish(self, outcome: str, message: str, hold: bool = True):
         if hold and not self.dry_run and self.state in ("ack", "moving"):
             self._send_quiet("hold")
-        if not self.dry_run:
-            self._send_quiet("record", enabled=False)
         self.outcome = outcome
         if self.log:
             self.log.close(outcome=outcome, terminal_message=message, decisions=self.decision_index,
-                           ended_monotonic=self.clock(), duration_s=self.clock() - self.log.meta["started_monotonic"])
+                           ended_monotonic=self.clock(), duration_s=self.clock() - self.log.meta["started_monotonic"],
+                           feedback_wait_count=self.feedback_wait_count)
             self.episodes.append(dict(episode=self.log.episode_id, outcome=outcome, decisions=self.decision_index,
                                       start_uv=self.egg_start.tolist(), auto_started=self.log.meta["auto_started"]))
         resumable = outcome in ("SUCCESS", "FAILURE_TIMEOUT", "UNKNOWN")
@@ -293,6 +316,8 @@ class KnockdownRunner:
     def event(self, event: dict):
         if not (self.active or self.waiting):
             return
+        if self.active and self.log:
+            self.log.event(dict(received_monotonic=self.clock(), runner_state=self.state, event=event))
         if event.get("type") in ("closing", "closed", "startup_failed", "transport_closed"):
             if self.active:
                 self.finish("FAULT_CONNECTION", "Connection ended: " + str(event.get("message", event["type"])), hold=False)
@@ -310,39 +335,45 @@ class KnockdownRunner:
         if not (self.active or self.waiting):
             return
         now = self.clock()
-        if item is None or item.get("displayed_age_s", 1e9) > max_age or (not self.camera_only and remote_age > 1.5):
-            if self.active:
-                self.finish("FAULT_STALE", "Fresh camera frame or motor status lost")
-            else:
-                self._update("done", "Auto-continue stopped: camera or motor status stale")
-            return
-        self.recent.append(item)
-        if self.waiting:
-            self._tick_waiting(remote, item, now)
-            return
-        if not self.camera_only:
+        self.camera_max_age, self.encoder_max_age = max_age, max_gap
+        # Control faults and existing move/ACK deadlines never wait for a camera.
+        if self.active and not self.camera_only:
             try:
                 self._require_motor_ready(remote, allow_moving=self.state in ("ack", "moving"))
             except ValueError as exc:
-                self.finish("FAULT_MOTOR", str(exc))
+                if self.active:
+                    self.finish("FAULT_MOTOR", str(exc))
+                else:
+                    self._update("done", "Auto-continue stopped: " + str(exc))
                 return
+        if self.state == "ack" and now - self.sent_t > ACK_TIMEOUT_S:
+            self.finish("FAULT_ACK_TIMEOUT", "Command acknowledgement timed out; never retried")
+            return
+        if self.state == "moving" and now > self.move_deadline:
+            self.finish("FAULT_MOVE_TIMEOUT", "Target not reached and settled in time")
+            return
+        if not self._feedback_ready(item, now, remote, remote_age):
+            return
+        key = (item["packet"].get("session"), item["packet"].get("frame_index", item["packet"].get("t_s")))
+        if not self.recent or key != (self.recent[-1]["packet"].get("session"),
+                self.recent[-1]["packet"].get("frame_index", self.recent[-1]["packet"].get("t_s"))):
+            self.recent.append(item)
+        if self.waiting:
+            self._tick_waiting(remote, item, now)
+            return
         uv, det = self._egg_uv(item)
         if uv is not None:
             self.last_seen, self.visible = uv, 1.0
         else:
             self.visible = 0.0
-        if self._check_success(uv, item, now):
-            return
-        if self.state == "ack" and now - self.sent_t > ACK_TIMEOUT_S:
-            self.finish("FAULT_ACK_TIMEOUT", "Command acknowledgement timed out; never retried")
-            return
-        if self.state == "moving":
-            if now > self.move_deadline:
-                self.finish("FAULT_MOVE_TIMEOUT", "Target not reached and settled in time")
+        if key != self.last_perception_key:
+            self.last_perception_key = key
+            if self._check_success(uv, item, now):
                 return
+        if self.state == "moving":
             from campaign import held_packet
             if remote.get("phase") == "HOLDING" and not remote.get("pending") and held_packet(
-                    item["packet"], self.target_mm, SETTLE_WINDOW_S, max_gap):
+                    encoder_packet(item, max_gap), self.target_mm, SETTLE_WINDOW_S, max_gap):
                 self._update("observe", f"Decision {self.decision_index}: settled")
             return
         if self.state != "observe" or now - self.last_command_t < self.spec.action.decision_period_s:
@@ -353,7 +384,103 @@ class KnockdownRunner:
                         f"No confirmed knockdown after {self.decision_index} decisions"
                         + ("" if near else "; egg not seen on its pedestal — label from video"))
             return
-        self._decide(item, det, now)
+        self._decide(item, det, now, remote, remote_age)
+
+    def _camera_fault(self, item, remote_age, message):
+        if self.active:
+            self.finish("FAULT_STALE", message)
+            if self.log:
+                self.log.close(freshness_at_fault=dict(
+                    camera_frame_available=item is not None,
+                    camera_age_s=None if item is None else item.get("displayed_age_s"),
+                    camera_decision_limit_s=self.camera_max_age,
+                    camera_limit_s=SENSOR_DELIVERY_TIMEOUT_S,
+                    motor_status_age_s=remote_age, motor_status_limit_s=1.5,
+                    camera_only=self.camera_only,
+                    pipeline_timing=None if item is None else item.get("rl_timing")))
+        else:
+            self._update("done", "Auto-continue stopped: " + message)
+
+    def _feedback_ready(self, item, now, remote=None, remote_age=0.0):
+        """Gate observations strictly; allow only a short, bounded delivery wait.
+
+        No stale observation enters the actor, success detector or settle check.
+        Absolute sample ages continue ageing in LiveFeed. Repeated replies cannot
+        renew a sample. A second deadline prevents endless moderately-old replies.
+        The native owner still supervises the already-dispatched finite target.
+        """
+        def finite_age(value):
+            return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0
+        cam_age = None if item is None else item.get("displayed_age_s")
+        if (item is None or not finite_age(cam_age) or
+                (not self.camera_only and (not finite_age(remote_age) or remote_age > 1.5))):
+            self._camera_fault(item, remote_age, "Camera unavailable/invalid or motor-status connection stale")
+            return False
+        if cam_age > SENSOR_DELIVERY_TIMEOUT_S:
+            self._camera_fault(item, remote_age,
+                f"Camera age {cam_age:.3f} s exceeds delivery stop limit {SENSOR_DELIVERY_TIMEOUT_S:.3f} s")
+            return False
+        encoder_delayed = False
+        encoder_message = ""
+        if not self.camera_only:
+            try:
+                # Structural validity, active state and the absolute delivery bound.
+                encoder_packet(item, SENSOR_DELIVERY_TIMEOUT_S)
+            except ValueError as exc:
+                if self.active:
+                    self._encoder_fault(item, str(exc), remote, remote_age)
+                else:
+                    self.message = "Waiting for referenced encoder feedback: " + str(exc)
+                return False
+            try:
+                encoder_packet(item, self.encoder_max_age)
+            except ValueError as exc:
+                encoder_delayed, encoder_message = True, str(exc)
+        camera_delayed = cam_age > self.camera_max_age
+        if (self.feedback_wait_started is not None and
+                now - self.feedback_wait_started >= FEEDBACK_RECOVERY_TIMEOUT_S):
+            message = "Fresh observations did not recover within 1.000 s"
+            if self.feedback_wait_reason == "encoders" and self.active:
+                self._encoder_fault(item, message, remote, remote_age)
+            else:
+                self._camera_fault(item, remote_age, message)
+            return False
+        if camera_delayed or encoder_delayed:
+            if self.feedback_wait_started is None:
+                self.feedback_wait_started = now
+                self.feedback_wait_reason = "encoders" if encoder_delayed else "camera"
+                self.feedback_wait_count += 1
+                self.off_since = self.empty_since = None
+                if self.log and self.active:
+                    self.log.event(dict(received_monotonic=now, runner_state=self.state,
+                        event=dict(type="feedback_wait", camera_age_s=cam_age,
+                            encoder_age_s=item["packet"].get("encoder_age_s"),
+                            command_id=self.command_id)))
+            self.message = "Waiting for fresh " + ("camera and encoders" if camera_delayed and encoder_delayed
+                else "camera" if camera_delayed else "encoders") + "; no new target sent"
+            return False
+        if self.feedback_wait_started is not None:
+            if self.log and self.active:
+                self.log.event(dict(received_monotonic=now, runner_state=self.state,
+                    event=dict(type="feedback_recovered", wait_s=now-self.feedback_wait_started,
+                        camera_age_s=cam_age, encoder_age_s=item["packet"].get("encoder_age_s"))))
+            self.feedback_wait_started = None
+            self.message = "Fresh observations restored; " + self.state
+        return True
+
+    def _encoder_fault(self, item, message, remote=None, remote_age=None):
+        packet = item['packet']
+        if self.log:
+            self.log.close(freshness_at_fault=dict(
+                runner_state=self.state, command_id=self.command_id,
+                camera_age_s=item.get('displayed_age_s'), motor_status_age_s=remote_age,
+                encoder_age_s=packet.get('encoder_age_s'), motor_age_s=packet.get('motor_age_s'),
+                encoder_decision_limit_s=self.encoder_max_age, encoder_delivery_limit_s=SENSOR_DELIVERY_TIMEOUT_S,
+                encoder_t_s=packet.get('encoder_t_s'), motor_active=packet.get('motor_active'),
+                motor_states=packet.get('motor_states'), feedback_source=packet.get('feedback_source'),
+                feedback_error=item.get('rl_feedback_error'), pipeline_timing=item.get('rl_timing'),
+                remote_phase=None if remote is None else remote.get('phase')))
+        self.finish('FAULT_ENCODER_STALE', message)
 
     def _tick_waiting(self, remote, item, now):
         still_s = self.still.update(item["rgb"], now)
@@ -396,7 +523,8 @@ class KnockdownRunner:
         else:
             self.off_since = None
         egg_near = uv is not None and np.linalg.norm(uv - self.egg_start) <= s.hw_off_radius_m
-        cup = self.ped_det.detect(item["rgb"]) if self.ped_det is not None else None
+        cup = (item["rl_cup"] if item.get("rl_detected") else
+               self.ped_det.detect(item["rgb"]) if self.ped_det is not None else None)
         cup_here = cup is not None and np.linalg.norm(self.camera.px_to_c(cup.px, feature_z_m=s.sim_support_top_z_m) - self.egg_start) <= s.hw_cup_match_m
         if cup_here and not egg_near:
             self.empty_since = self.empty_since or now
@@ -411,7 +539,7 @@ class KnockdownRunner:
         self.finish("SUCCESS", why)
         return True
 
-    def _decide(self, item, det, now):
+    def _decide(self, item, det, now, remote=None, remote_age=0.0):
         a = self.spec.action
         d_meas = self._diff_m(item)
         obs = C.build_actor_obs(self.last_seen, np.array([self.visible]), self.egg_start, np.array([d_meas]),
@@ -431,6 +559,8 @@ class KnockdownRunner:
         speed = max(LAB_MIN_SPEED_MM_S, 1000 * float(C.cable_speed(np.array(limited - d_meas), self.vmax_m_s, a)))
         row = dict(decision=self.decision_index, t=now, frame_t_s=item["packet"].get("t_s"),
                    frame_age_s=item.get("displayed_age_s"), motor_age_s=item["packet"].get("motor_age_s"),
+                   encoder_t_s=item["packet"].get("encoder_t_s"),
+                   encoder_age_s=item["packet"].get("encoder_age_s"), pipeline_timing=item.get("rl_timing"),
                    encoder_mm=None if self.camera_only else self._lengths_mm(item), payout_assumed=self.camera_only,
                    diff_measured_m=d_meas, egg_visible=self.visible, egg_uv_m=self.last_seen,
                    egg_px=None if det is None else det.px, egg_confidence=None if det is None else det.confidence,
@@ -447,6 +577,11 @@ class KnockdownRunner:
                 self.finish("FAULT_LIMIT", "Policy target failed Lab limit validation: " + str(exc))
                 return
         self.log.frame(f"d{self.decision_index:02d}.jpg", item["rgb"])
+        if item.get("rl_detected"):
+            commit_time = self.clock()
+            item = age_item(item, commit_time)
+            if not self._feedback_ready(item, commit_time, remote, remote_age + max(0.0, commit_time-now)):
+                return
         self.prev_action = clipped
         self.prev_limited = limited if moved else base
         self.decision_index += 1

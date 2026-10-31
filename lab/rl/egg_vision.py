@@ -70,6 +70,8 @@ class Detection:
     circularity: float
     confidence: float
     n_candidates: int
+    # Radius supported by the filled colour component; None for edge proposals.
+    inscribed_radius_px: float | None = None
 
 
 class BlobDetector:
@@ -103,6 +105,7 @@ class BlobDetector:
             size = float(math.exp(-abs(math.log(area / self.expected_area))))
             conf = 0.6 * shape_score + 0.4 * size
             centre = cents[i]
+            inscribed_radius = None
             if self.shape == "circle":
                 # The cap is circular; its stem and attached shadow can pull the
                 # component centroid sideways. Centre the largest inscribed disk
@@ -112,12 +115,14 @@ class BlobDetector:
                 local = [c - np.array([[[x - 1, y - 1]]]) for c in contours]
                 cv2.drawContours(filled, local, -1, 255, cv2.FILLED)
                 dist = cv2.distanceTransform(filled, cv2.DIST_L2, cv2.DIST_MASK_PRECISE)
+                inscribed_radius = float(dist.max())
                 ys, xs = np.nonzero(dist >= dist.max() - 0.25)
                 centre = np.array([xs.mean() + x - 1, ys.mean() + y - 1])
             score = conf - (math.dist(centre, near_px) / (8 * math.sqrt(self.expected_area)) if near_px is not None else 0)
             if score > best_score:
                 best_score = score
-                best = Detection((float(centre[0]), float(centre[1])), area, self.expected_area, circ, conf, 0)
+                best = Detection((float(centre[0]), float(centre[1])), area, self.expected_area,
+                                 circ, conf, 0, inscribed_radius)
         if best is None or best.confidence < self.min_confidence:
             return None
         best.n_candidates = count
@@ -127,6 +132,96 @@ class BlobDetector:
 class EggDetector(BlobDetector):
     def __init__(self, colour: Colour, pixels_per_m: float, **kw):
         super().__init__(colour, math.pi * (CAP_RADIUS_M * pixels_per_m) ** 2, shape="circle", **kw)
+
+    def detect(self, rgb: np.ndarray, near_px=None) -> Detection | None:
+        """Keep supported cap centres; recover a black cap fragmented by reflections.
+
+        A specular highlight can cut the black mask into irregular pieces even
+        though the cap's outer edge is visible. Circle proposals alone are not
+        detections: require sampled black pixels, a dark interior, a brighter
+        surrounding ring, and contrast around most of the proposed boundary.
+        This does not solve an egg merged into a dark background.
+        """
+        blob = super().detect(rgb, near_px)
+        c = self.colour
+        if not (c.h_lo == 0 and c.h_hi == 179 and c.s_lo == 0 and
+                c.s_hi == 255 and c.v_lo == 0 and c.v_hi <= 120):
+            return blob  # This recovery is for the sampled black egg only.
+        expected_radius = math.sqrt(self.expected_area / math.pi)
+        # A bright reflection can leave an accepted dark crescent joined to the
+        # stem. Its largest inscribed disk then points at the crescent/stem,
+        # not the cap centre. Require support spanning most of the cap radius;
+        # otherwise use the same independently checked outer-edge recovery as
+        # for a miss. Do not fall back to the unsupported blob if recovery fails.
+        if (blob is not None and blob.inscribed_radius_px is not None and
+                blob.inscribed_radius_px >= .75 * expected_radius):
+            return blob
+        scale = min(1.0, 640.0 / rgb.shape[1])
+        small = cv2.resize(rgb, (round(rgb.shape[1] * scale), round(rgb.shape[0] * scale)),
+                           interpolation=cv2.INTER_AREA) if scale < 1 else rgb
+        gray = cv2.cvtColor(small, cv2.COLOR_RGB2GRAY)
+        expected_r = math.sqrt(self.expected_area / math.pi) * scale
+        if expected_r < 8:
+            return None
+        circles = cv2.HoughCircles(cv2.GaussianBlur(gray, (5, 5), 1), cv2.HOUGH_GRADIENT,
+                                  dp=1, minDist=expected_r, param1=100, param2=25,
+                                  minRadius=max(6, round(0.65 * expected_r)),
+                                  maxRadius=round(1.2 * expected_r))
+        if circles is None:
+            return None
+        mask = c.mask(small) > 0
+        roi = np.ones(gray.shape, np.uint8)
+        if self.roi is not None:
+            roi.fill(0)
+            polygon = np.rint((self.roi + .5) * scale - .5).astype(np.int32)
+            cv2.fillPoly(roi, [polygon], 1)
+        angles = np.arange(72) * (2 * math.pi / 72)
+        directions = np.stack([np.cos(angles), np.sin(angles)], axis=1)
+        candidates = []
+        for cx, cy, radius in circles[0]:
+            # Need the whole ring: a partial frame-edge object is ambiguous.
+            extent = int(math.ceil(1.4 * radius))
+            x0, y0 = int(cx) - extent, int(cy) - extent
+            x1, y1 = int(cx) + extent + 2, int(cy) + extent + 2
+            if x0 < 0 or y0 < 0 or x1 > gray.shape[1] or y1 > gray.shape[0]:
+                continue
+            yy, xx = np.ogrid[y0:y1, x0:x1]
+            distance2 = (xx - cx) ** 2 + (yy - cy) ** 2
+            inside = distance2 <= (0.9 * radius) ** 2
+            ring = (distance2 >= (1.15 * radius) ** 2) & (distance2 <= (1.4 * radius) ** 2)
+            if np.mean(roi[y0:y1, x0:x1][inside]) < .95:
+                continue
+            dark_fraction = float(np.mean(mask[y0:y1, x0:x1][inside]))
+            inner_level = float(np.median(gray[y0:y1, x0:x1][inside]))
+            ring_level = float(np.median(gray[y0:y1, x0:x1][ring]))
+            if dark_fraction < .3 or inner_level > c.v_hi + 30 or ring_level - inner_level < 30:
+                continue
+            inner = np.rint([cx, cy] + .85 * radius * directions).astype(int)
+            outer = np.rint([cx, cy] + 1.15 * radius * directions).astype(int)
+            difference = (gray[outer[:, 1], outer[:, 0]].astype(float)
+                          - gray[inner[:, 1], inner[:, 0]].astype(float))
+            edge_support = float(np.mean(difference > 15))
+            if edge_support < .55:
+                continue
+            size_score = min(radius / expected_r, expected_r / radius)
+            confidence = float(.6 * edge_support + .2 * dark_fraction + .2 * size_score)
+            if confidence < self.min_confidence:
+                continue
+            centre = (np.asarray([cx, cy]) + .5) / scale - .5
+            score = confidence - (math.dist(centre, near_px) / (8 * math.sqrt(self.expected_area))
+                                  if near_px is not None else 0)
+            # Circularity describes the proposed disk, not a reconstructed mask.
+            found = Detection(tuple(float(v) for v in centre), float(math.pi * (radius / scale) ** 2),
+                              self.expected_area, 1.0, confidence, 0)
+            candidates.append((score, found))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        if len(candidates) > 1 and candidates[0][0] - candidates[1][0] < .1:
+            return None  # Do not choose arbitrarily between similar caps.
+        best = candidates[0][1]
+        best.n_candidates = len(candidates)
+        return best
 
 
 class PedestalDetector(BlobDetector):

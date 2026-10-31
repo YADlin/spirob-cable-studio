@@ -10,7 +10,7 @@ import signal
 import sys
 import threading
 from urllib.parse import urlsplit
-from .packets import make_packet
+from .packets import make_packet, make_feedback
 
 
 def add_observer(server, service):
@@ -70,13 +70,16 @@ def add_observer(server, service):
                 self.send_error(401)
                 return
             route = urlsplit(self.path).path
-            if route not in ('/health', '/packet'):
+            if route not in ('/health', '/packet', '/rl-packet', '/rl-feedback'):
                 self.send_error(404)
                 return
             try:
                 result = ({'service': 'spirob-live', 'version': '0.7.0', 'read_only_preview': True,
                             'capture_state': service.capture.status(renew=False)['state'] if service.capture else 'IDLE'}
-                          if route == '/health' else make_packet(service.capture))
+                          if route == '/health' else make_feedback(service.capture) if route == '/rl-feedback'
+                          else make_packet(service.capture, latest_frame=route == '/rl-packet'))
+                if route == '/rl-packet':
+                    result['frame_selection'] = 'latest'
                 code = 200
             except (FileNotFoundError, json.JSONDecodeError, KeyError):
                 result, code = {'state': 'WAITING', 'message': 'Session files are being initialized.'}, 200
