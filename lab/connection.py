@@ -1,6 +1,8 @@
 """1. Connection: SSH transports and the camera link; no motor calculations.
 
-WorkstationSession runs on Ubuntu. CameraTunnel runs inside laptop WSL.
+WorkstationSession runs on Ubuntu. The motor owner is either the laptop (WSL for the
+motors, Windows for the camera; CameraTunnel runs inside WSL) or a Raspberry Pi that
+runs both itself ("host": "pi" in rig.local.json).
 Commands are newline-delimited JSON over SSH stdin; replies use SSH stdout.
 The camera uses the existing authenticated HTTP service through SSH.
 """
@@ -15,6 +17,7 @@ import time
 import tempfile
 import uuid
 from run_storage import write_json, endpoint
+from hosts import is_pi, remote_section
 from pathlib import Path
 from urllib.request import Request, build_opener, ProxyHandler
 
@@ -94,8 +97,24 @@ class CameraTunnel:
                 self.process.wait()
 
 
+SAFE_WORD = re.compile(r'[A-Za-z0-9_./-]+')
+
+
+def _checked(words, joiners=('&&',)):
+    if any(word not in joiners and not SAFE_WORD.fullmatch(word) for word in words):
+        raise ValueError('Remote paths must use simple names without spaces or shell characters.')
+    return ' '.join(words)
+
+
 def wsl_command(rig, filename, *arguments):
-    """Avoid nested PowerShell/bash quoting for WSL Python commands."""
+    """Command line that runs a Lab script on the motor owner (laptop WSL or Raspberry Pi).
+
+    Avoids nested PowerShell/bash quoting for WSL Python commands."""
+    if is_pi(rig):
+        pi = remote_section(rig)
+        lab = pi['runtime'].rstrip('/')
+        return _checked(['cd', lab, '&&', 'exec', pi['python'], '-u', lab + '/' + filename,
+                         '--rig', lab + '/rig.local.json', *arguments])
     w = rig['wsl']
     words = ['wsl.exe', '-u', w['user'], '--exec',
              w['motor_repo'].rstrip('/') + '/.venv/bin/python', '-u',
@@ -104,6 +123,24 @@ def wsl_command(rig, filename, *arguments):
     if any(not re.fullmatch(r'[A-Za-z0-9_./-]+', word) for word in words):
         raise ValueError('WSL paths must use simple names without spaces or shell characters.')
     return ' '.join(words)
+
+
+remote_command = wsl_command   # host-neutral name for new code
+
+
+def camera_command(rig):
+    """Command line that starts the camera service on the motor owner."""
+    if is_pi(rig):
+        pi = remote_section(rig)
+        lab = pi['runtime'].rstrip('/')
+        return _checked(['cd', lab, '&&', 'exec', pi['python'], '-u', '-m', 'spirob_live.server',
+                         '--rig', lab + '/rig.local.json'])
+    w = rig['windows']
+    script = ('Set-Location ' + ps_quote(w['runtime']) +
+              '; & uv --system-certs run --offline --no-project --python 3.12 '
+              '--with opencv-python-headless==4.11.0.86 python -m spirob_live.server --rig ' +
+              ps_quote(w['runtime'] + '\\rig.local.json') + '; exit $LASTEXITCODE')
+    return powershell(script)
 
 
 def powershell(script):
@@ -174,16 +211,11 @@ class WorkstationSession:
             if sock.connect_ex(('127.0.0.1', 8765)) == 0:
                 raise RuntimeError('Close the previous Terminal A camera command before Connect.')
         self.events.put({'type':'starting', 'message':'Starting camera service; first launch may take up to 60 seconds'})
-        w = self.rig['windows']
-        script = ('Set-Location ' + ps_quote(w['runtime']) +
-                  '; & uv --system-certs run --offline --no-project --python 3.12 '
-                  '--with opencv-python-headless==4.11.0.86 python -m spirob_live.server --rig ' +
-                  ps_quote(w['runtime'] + '\\rig.local.json') + '; exit $LASTEXITCODE')
         common = ['ssh', '-T', '-o', 'ConnectTimeout=10', '-o', 'ServerAliveInterval=10',
                   '-o', 'ServerAliveCountMax=3', '-o', 'ControlMaster=auto',
                   '-o', 'ControlPath=' + str(Path(self.ssh_directory.name)/'control')]
         self.camera = subprocess.Popen(common + ['-o', 'ExitOnForwardFailure=yes',
-            '-L', '127.0.0.1:8765:127.0.0.1:8765', self.rig['ssh_host'], powershell(script)],
+            '-L', '127.0.0.1:8765:127.0.0.1:8765', self.rig['ssh_host'], camera_command(self.rig)],
             stdin=subprocess.DEVNULL, stdout=self.stderr, stderr=self.stderr)
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:

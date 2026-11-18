@@ -1,12 +1,21 @@
-"""One-time setup and occasional connection maintenance. Standard library only."""
+"""One-time setup and occasional connection maintenance. Standard library only.
+
+The motor owner is the laptop (Windows + WSL) or a Raspberry Pi ("host": "pi" in
+rig.local.json). Commands that only make sense for one of them say so.
+"""
 import argparse
+import io
 import json
 from pathlib import Path, PureWindowsPath
 import re
+import secrets
+import shlex
 import shutil
 import subprocess
+import tarfile
 import tempfile
 from connection import powershell, ps_quote, wsl_command
+from hosts import is_pi, remote_section
 
 ROOT = Path(__file__).resolve().parent
 RIG = ROOT/'rig.local.json'
@@ -56,7 +65,7 @@ def deploy(rig):
     with tempfile.TemporaryDirectory() as tmp:
         stage = Path(tmp)/runtime.name
         (stage/'spirob_live').mkdir(parents=True)
-        for name in ('connection.py', 'actuation.py', 'motion_limits.py', 'motion_profile.py', 'run_storage.py', 'unlock_camera.sh', 'diagnostics.py'):
+        for name in ('connection.py', 'hosts.py', 'actuation.py', 'motion_limits.py', 'motion_profile.py', 'run_storage.py', 'unlock_camera.sh', 'diagnostics.py'):
             shutil.copy2(ROOT/name, stage/name)
         for name in ('__init__.py', 'server.py', 'packets.py', 'capture.py'):
             shutil.copy2(ROOT/'spirob_live'/name, stage/'spirob_live'/name)
@@ -81,11 +90,75 @@ def deploy(rig):
     print('Existing motor, camera addon and previous runtime were preserved.')
 
 
+# --- Raspberry Pi -------------------------------------------------------------------
+
+PI_LAB_FILES = ('connection.py', 'hosts.py', 'actuation.py', 'motion_limits.py', 'motion_profile.py',
+                'run_storage.py', 'diagnostics.py', 'camera_maintenance.py', 'requirements-pi.txt',
+                'spirob_live/__init__.py', 'spirob_live/server.py', 'spirob_live/packets.py',
+                'spirob_live/capture.py')
+PI_PACKAGES = ('spirob_cable', 'spirob_experiment')
+
+
+def pi_bundle():
+    """The workstation's own code, so the Pi always runs exactly what the GUI expects."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode='w:gz') as tar:
+        for name in PI_LAB_FILES:
+            tar.add(ROOT/name, arcname='lab/'+name)
+        for package in PI_PACKAGES:
+            for path in sorted((ROOT.parent/package).glob('*.py')):
+                tar.add(path, arcname=package+'/'+path.name)
+        tar.add(RIG, arcname='lab/rig.local.json')
+    return buffer.getvalue()
+
+
+def pi_token(rig):
+    """The workstation and the Pi share one camera token. Create it once, then copy it over."""
+    pi = remote_section(rig)
+    token = Path(rig['workstation_token_file']).expanduser()
+    if not token.is_file():
+        token.parent.mkdir(parents=True, exist_ok=True)
+        token.write_text(secrets.token_hex(32)+'\n')
+        token.chmod(0o600)
+        print('Created camera token', token)
+    remote = shlex.quote(pi['token_file'])
+    subprocess.run(['ssh', '-T', '-o', 'ConnectTimeout=10', rig['ssh_host'],
+                    f'umask 077 && mkdir -p "$(dirname {remote})" && cat > {remote}'],
+                   input=token.read_bytes(), check=True)
+
+
+def pi_deploy(rig):
+    pi = remote_section(rig)
+    root, lab, python = (shlex.quote(pi[k]) for k in ('root', 'runtime', 'python'))
+    # An idle camera service would keep running the old code; a busy one must not be touched.
+    ssh(rig, f'if [ -f {lab}/camera_maintenance.py ] && [ -x {python} ]; then '
+             f'cd {lab} && {python} camera_maintenance.py --rig {lab}/rig.local.json --stop; fi')
+    subprocess.run(['ssh', '-T', '-o', 'ConnectTimeout=10', rig['ssh_host'],
+                    f'mkdir -p {root} && tar -xzf - -C {root}'], input=pi_bundle(), check=True)
+    uv = '"$HOME/.local/bin/uv"'
+    ssh(rig, f'{uv} venv --quiet --python 3.12 --allow-existing {root}/.venv && '
+             f'{uv} pip sync --quiet --python {python} {lab}/requirements-pi.txt && '
+             f'mkdir -p {shlex.quote(pi["data_root"])}')
+    pi_token(rig)
+    missing = subprocess.run(['ssh', '-T', '-o', 'ConnectTimeout=10', rig['ssh_host'],
+                              f'test -f {root}/config.json'], check=False).returncode != 0
+    print('Deployed the Lab runtime to', pi['root'], 'on', rig['ssh_host'])
+    if missing:
+        print('Next: the Pi has no motor configuration yet. Copy the laptop\'s config.json to',
+              pi['root']+'/config.json', 'and set each axis port to the /dev/serial/by-id/... path.')
+    else:
+        print('Next: python3 setup.py check')
+
+
+def pi_only_on_laptop(command):
+    raise ValueError(f'"{command}" is for the laptop (Windows/WSL); the Raspberry Pi does not need it.')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
     p = commands.add_parser('import'); p.add_argument('--from', dest='source', type=Path, required=True)
-    for name in ('deploy', 'unlock', 'check', 'usb-list', 'diagnostics', 'camera-status', 'camera-stop'):
+    for name in ('deploy', 'unlock', 'check', 'usb-list', 'diagnostics', 'camera-status', 'camera-stop', 'pi-token'):
         commands.add_parser(name)
     for name in ('usb-attach', 'usb-detach'):
         p = commands.add_parser(name); p.add_argument('--busid', required=True)
@@ -103,10 +176,17 @@ def main():
         print('Imported settings. New deployment folder: SpiRob_Simple_Runtime. Previous:', old_name)
         return
     rig = json.loads(RIG.read_text())
+    if is_pi(rig) and args.command in ('unlock', 'usb-list', 'usb-attach', 'usb-detach'):
+        pi_only_on_laptop(args.command)
     if args.command == 'deploy':
-        deploy(rig)
+        pi_deploy(rig) if is_pi(rig) else deploy(rig)
+    elif args.command == 'pi-token':
+        pi_token(rig)
     elif args.command in ('camera-status','camera-stop'):
-        camera_maintenance(rig, stop=args.command=='camera-stop')
+        if is_pi(rig):
+            ssh(rig, wsl_command(rig, 'camera_maintenance.py', *(['--stop'] if args.command == 'camera-stop' else [])))
+        else:
+            camera_maintenance(rig, stop=args.command=='camera-stop')
     elif args.command == 'diagnostics':
         from diagnostics import collect
         collect(ROOT, rig)
@@ -139,7 +219,10 @@ def main():
     elif args.command == 'fetch':
         if not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', args.session):
             raise ValueError('Use the exact session folder name from the window')
-        remote = PureWindowsPath(rig['windows']['data_root']).relative_to(PureWindowsPath(rig['windows']['profile'])).as_posix()
+        if is_pi(rig):
+            remote = remote_section(rig)['data_root'].rstrip('/')
+        else:
+            remote = PureWindowsPath(rig['windows']['data_root']).relative_to(PureWindowsPath(rig['windows']['profile'])).as_posix()
         (ROOT/'data').mkdir(exist_ok=True)
         subprocess.run(['scp', '-r', rig['ssh_host']+':'+remote+'/'+args.session, str(ROOT/'data')], check=True)
 

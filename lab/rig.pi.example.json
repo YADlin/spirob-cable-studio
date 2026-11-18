@@ -1,0 +1,13 @@
+{
+  "host": "pi",
+  "ssh_host": "user@100.73.176.88",
+  "workstation_token_file": "~/.spirob/camera-token.txt",
+  "pi": {
+    "root": "/home/user/spirob-lab",
+    "data_root": "/home/user/SpiRob_Data",
+    "token_file": "/home/user/.spirob/camera-token.txt",
+    "device": 0,
+    "backend": "v4l2",
+    "min_fps": 15
+  }
+}

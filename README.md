@@ -6,6 +6,8 @@ A Python desktop workstation using PySide6, PyQtGraph and PyModbus. It supports 
 
 The **Lengths** tab shows mean/difference sliders, editable targets for each cable and live encoder-based length estimates beside them.
 
+> **Raspberry Pi:** the SpiRob Lab can use a Raspberry Pi instead of the Windows/WSL laptop to own the motors and camera. See [docs/RASPBERRY_PI.md](docs/RASPBERRY_PI.md).
+
 ## Install beside the existing application
 
 Extract `spirob-cable-studio.zip` into `~/Two_Cable_Motor_Setup`, then:

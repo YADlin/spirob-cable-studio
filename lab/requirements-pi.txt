@@ -1,0 +1,7 @@
+# What the Raspberry Pi needs to own the motors and camera. No GUI packages:
+# the Qt wheels do not install on Raspberry Pi OS, and the Pi never draws a window.
+# Versions match pyproject.toml (and the laptop's Windows camera runtime for OpenCV).
+numpy==2.2.6
+pymodbus==3.11.3
+pyserial==3.5
+opencv-python-headless==4.11.0.86

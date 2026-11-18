@@ -1,6 +1,6 @@
 """Run retention: collect first, stop hardware, then explicitly keep or discard.
 
-This standard-library module is also deployed to WSL. It never opens a camera
+This standard-library module is also deployed to the motor owner (WSL or Raspberry Pi). It never opens a camera
 or a serial port. The same lock as the motor owner prevents cleanup during a run.
 """
 import argparse
@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
+from hosts import remote_section
 
 
 def write_json(path, value):
@@ -26,7 +27,7 @@ def write_json(path, value):
 
 
 def endpoint(rig):
-    return dict(host=rig['ssh_host'], data_root=rig['wsl']['data_root'])
+    return dict(host=rig['ssh_host'], data_root=remote_section(rig)['data_root'])
 
 
 def checked_path(root, identifier):
@@ -205,7 +206,7 @@ def main():
     parser.add_argument('--session')
     parser.add_argument('--decision', choices=('keep','discard'))
     args = parser.parse_args()
-    rig = json.loads(args.rig.read_text())['wsl']
+    rig = remote_section(json.loads(args.rig.read_text()))
     if args.list:
         print(json.dumps(pending_remote(rig['data_root'])))
         return

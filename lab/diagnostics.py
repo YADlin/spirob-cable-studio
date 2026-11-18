@@ -17,7 +17,8 @@ def tail(path, limit=256*1024):
 
 
 def remote_bundle(rig):
-    root = Path(rig['wsl']['data_root'])
+    from hosts import remote_section
+    root = Path(remote_section(rig)['data_root'])
     runs = sorted(root.glob('*_LIVE_*/run.json'), reverse=True)[:4]
     buffer = io.BytesIO()
     with ZipFile(buffer, 'w', ZIP_DEFLATED) as z:

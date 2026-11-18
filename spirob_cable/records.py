@@ -1,7 +1,7 @@
 """Timestamp every individual serial sample; never pretend two reads are simultaneous."""
 import csv
 from datetime import datetime, timezone
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 import json
 from pathlib import Path
 import platform
@@ -15,6 +15,14 @@ COLUMNS = ['axis', 'sample_index', 'read_start_s', 'read_end_s', 'state', 'count
            'motor_rpm_command', 'velocity_mm_s', 'read_duration_s']
 
 
+def _installed(package):
+    """The Raspberry Pi runs without the GUI packages; record that instead of failing."""
+    try:
+        return version(package)
+    except PackageNotFoundError:
+        return None
+
+
 class Recorder:
     def __init__(self, root, settings, demo, publish=lambda *a, **k: None, name=''):
         self.path = Path(root)/(datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S_%fZ')+('_DEMO' if demo else '_HARDWARE'))
@@ -24,7 +32,7 @@ class Recorder:
         meta = {'schema_version': 4, 'software_version': __version__, 'demo': demo,
                 'created_utc': datetime.now(timezone.utc).isoformat(), 'name': name,
                 'configuration': settings.data(), 'python': platform.python_version(),
-                'dependencies': {p: version(p) for p in ('PySide6','pyqtgraph','numpy','pymodbus','pyserial')},
+                'dependencies': {p: _installed(p) for p in ('PySide6','pyqtgraph','numpy','pymodbus','pyserial')},
                 'coordinates': 'A=(L1+L2)/2; D=(L1-L2)/2; L1=A+D; L2=A-D; all log lengths mm',
                 'timing': 'Sequential per-axis host acquisition times; no simultaneous start/measurement guarantee',
                 'transport': {'framer':'ASCII','baud':9600,'data_bits':8,'parity':'N','stop_bits':1,'timeout_s':0.3,'retries':0}}

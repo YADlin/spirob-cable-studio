@@ -1,10 +1,11 @@
-"""2. Actuation: the laptop's single owner of motor commands and recording.
+"""2. Actuation: the motor owner's (laptop or Raspberry Pi) single owner of motor commands and recording.
 
 Read targets(), dispatch(), then run_session(). Hardware communication remains
 in the existing spirob_cable.Worker, including its limits and watchdog.
 No MuJoCo, image fitting, GUI, or automatic motion sequence runs here.
 """
 import argparse
+import contextlib
 import fcntl
 import json
 import math
@@ -18,6 +19,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from connection import CameraTunnel
+from hosts import is_pi, remote_section
 from motion_limits import limits, worker_limits
 
 
@@ -441,7 +443,9 @@ def main():
     parser.add_argument('--difference-limit-mm', type=float, default=70.)
     parser.add_argument('--motion-profile-b64')
     args = parser.parse_args()
-    rig = json.loads(args.rig.read_text())['wsl']
+    full_rig = json.loads(args.rig.read_text())
+    on_pi = is_pi(full_rig)
+    rig = remote_section(full_rig)
     repo = Path(rig['motor_repo'])
     os.chdir(repo)
     sys.path.insert(0, str(repo))
@@ -457,16 +461,17 @@ def main():
         cfg=replace(cfg,axes=tuple(replace(a,rest_length_mm=r,setup_travel_mm=session_policy['setup_travel_mm']) for a,r in zip(cfg.axes,session_policy['rest_lengths_mm'])))
     if args.check_only:
         cfg.validate()
-        emit(type='check', motor_repo=str(repo), reference_source='GUI session profile' if args.motion_profile_b64 else 'WSL config',
+        emit(type='check', motor_repo=str(repo), reference_source='GUI session profile' if args.motion_profile_b64 else ('Pi config' if on_pi else 'WSL config'),
              configured_rest_lengths_mm=configured_references, axes=[{'port': a.port, 'device_id': a.device_id,
              'rest_length_mm': a.rest_length_mm, 'usb_present': Path(a.port).exists()} for a in cfg.selected],
-             camera_key_present=Path(rig['camera_ssh_key']).is_file(),
-             camera_agent_socket_present=(Path.home()/'.ssh/spirob-camera-agent.sock').is_socket(),
+             host='pi' if on_pi else 'laptop',
+             camera_key_present=True if on_pi else Path(rig['camera_ssh_key']).is_file(),
+             camera_agent_socket_present=True if on_pi else (Path.home()/'.ssh/spirob-camera-agent.sock').is_socket(),
              message='Read-only configuration check; motors and camera were not opened')
         return 0
     for axis in cfg.selected:
         if not os.access(axis.port, os.R_OK | os.W_OK):
-            raise RuntimeError(f'Motor USB unavailable: {axis.port}. Attach the CP2102 to WSL.')
+            raise RuntimeError(f'Motor USB unavailable: {axis.port}. ' + ('Check the adapter and the dialout group on the Pi.' if on_pi else 'Attach the CP2102 to WSL.'))
     token = Path(rig['token_file']).read_text().strip()
     inbox = Inbox(sys.stdin)
     def interrupted(*_):
@@ -476,8 +481,11 @@ def main():
         signal.signal(signum, interrupted)
     with (repo / '.spirob-live.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        with CameraTunnel(rig, token):
-            result = run_session(rig, cfg, CameraClient('http://127.0.0.1:8766', token), inbox,
+        # On the Pi the camera service runs on this machine; the laptop reaches Windows through a tunnel.
+        camera_link = contextlib.nullcontext() if on_pi else CameraTunnel(rig, token)
+        camera_url = 'http://127.0.0.1:8765' if on_pi else 'http://127.0.0.1:8766'
+        with camera_link:
+            result = run_session(rig, cfg, CameraClient(camera_url, token), inbox,
                                  max_seconds=args.max_seconds,difference_limit_mm=session_policy)
     return 0 if result['state'] == 'COMPLETE' else 1
 

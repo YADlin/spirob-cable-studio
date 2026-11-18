@@ -1,4 +1,4 @@
-"""Add authenticated GET /health and /packet to the existing Windows camera server.
+"""Add authenticated GET /health and /packet to the existing camera server (Windows laptop or Raspberry Pi).
 
 Run this INSTEAD OF camera-serve. Its original POST control API is inherited intact.
 """
@@ -101,7 +101,8 @@ def main():
     parser.add_argument('--rig', type=Path, required=True)
     args = parser.parse_args()
     rig = json.loads(args.rig.read_text())
-    camera = rig['windows']
+    from hosts import is_pi, remote_section
+    camera = remote_section(rig) if is_pi(rig) else rig['windows']
     addon = Path(camera['capture_source'])
     if not (addon / 'spirob_experiment/camera.py').is_file():
         raise SystemExit(f'Cannot find existing capture source at {addon}')
@@ -109,7 +110,8 @@ def main():
     from spirob_experiment.camera import OpenCVCamera, serve
     from .capture import LiveCameraService
     token = Path(camera['token_file']).read_text().strip()
-    factory = lambda: OpenCVCamera(camera['device'], camera['backend'], 1920, 1080, 30)
+    size = (camera.get('width', 1920), camera.get('height', 1080), camera.get('fps', 30))
+    factory = lambda: OpenCVCamera(camera['device'], camera['backend'], *size)
     # Pay module/provenance cold-start cost before advertising a ready service.
     import cv2
     from spirob_experiment.storage import software_provenance
@@ -119,7 +121,7 @@ def main():
     def stop(*_):
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, stop)
-    print('SpiRob camera + observer ready on Windows loopback:8765. Waiting for the interactive session.', flush=True)
+    print('SpiRob camera + observer ready on loopback:8765. Waiting for the interactive session.', flush=True)
     print(f'Reusing capture implementation: {addon}', flush=True)
     try:
         server.serve_forever()

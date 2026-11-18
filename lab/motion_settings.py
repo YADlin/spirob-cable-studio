@@ -68,8 +68,8 @@ class MotionSettings(QDialog):
             result=subprocess.run(['ssh','-T','-o','ConnectTimeout=5',self.host.rig['ssh_host'],wsl_command(self.host.rig,'actuation.py','--check-only')],capture_output=True,text=True,timeout=12,check=True)
             data=json.loads(result.stdout.strip().splitlines()[-1])
             for row,a in zip(self.fields,data['axes']):row[0].setValue(a['rest_length_mm'])
-            self.map_bounds();self.status.setText('Loaded WSL references. Review and Save to use at the next connection.')
-        except Exception as exc:self.status.setText('Could not read WSL configuration: '+str(exc))
+            self.map_bounds();self.status.setText('Loaded the rig\'s references. Review and Save to use at the next connection.')
+        except Exception as exc:self.status.setText('Could not read the rig configuration: '+str(exc))
 
     def save(self):
         try:

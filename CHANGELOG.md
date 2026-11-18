@@ -1,5 +1,19 @@
 # Changes
 
+## SpiRob Lab 0.9.1 + Raspberry Pi as the motor and camera owner
+
+- New `"host": "pi"` in `lab/rig.local.json`: the Pi runs the session coordinator, the motors and
+  the camera service in place of the laptop's WSL and Windows. The GUI is unchanged.
+  Setup and daily use: [docs/RASPBERRY_PI.md](docs/RASPBERRY_PI.md); example: `lab/rig.pi.example.json`.
+- `setup.py deploy` (Pi): copies the workstation's Lab runtime, motor and capture code, builds the
+  Pi's Python 3.12 environment with uv from `lab/requirements-pi.txt` (no GUI packages), installs
+  the shared camera token. `check`, `camera-status`, `camera-stop` and `fetch` work for the Pi;
+  `unlock` and `usb-*` say they are laptop-only.
+- Camera width, height and fps are now settable (Pi section; defaults unchanged at 1920 × 1080, 30 fps).
+- Motor logs no longer fail when PySide6/pyqtgraph are absent; their version is recorded as null.
+- The laptop path is unchanged; the laptop deploy now also copies `hosts.py`.
+- Verification: lab/tests/verify_pi_host.py.
+
 ## SpiRob Lab 0.9.1 + save the previewed model as XML
 
 - **Save preview model as XML…** (Fit / capture) and **Save preview XML…** (beside *Apply selection*
