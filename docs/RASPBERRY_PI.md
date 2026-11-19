@@ -40,7 +40,16 @@ All commands run on the workstation in `spirob-cable-studio/lab/` unless marked 
    ```bash
    python3 setup.py deploy
    ```
-4. **Motor configuration (Pi).** Put the `config.json` the laptop used at `~/spirob-lab/config.json` on the Pi, then change both axes' `"port"` to the stable path from `ls /dev/serial/by-id/` (for this rig `/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0`). The drive IDs are 5 and 7.
+4. **Motor configuration, from Octa's recipe card (Pi).** No old laptop file is needed: Octa writes the Lab's `config.json` from `~/robot.yaml` (drive IDs, port, payout signs, spool, travel window). Only the two rest lengths come from the Lab: on the workstation,
+   ```bash
+   python3 -c "import json;print(json.load(open('config.json'))['motion_profile']['rest_lengths_mm'])"
+   ```
+   then on the Pi, with those two numbers in the card's motor order (`m_left`, `m_right`):
+   ```bash
+   git -C ~/octa pull
+   octa lab-config --card ~/robot.yaml --rest-mm 220 220
+   ```
+   It writes `~/spirob-lab/config.json` and prints which drive became axis 1 and 2.
 5. **Check, without opening motors or camera:**
    ```bash
    python3 setup.py check
