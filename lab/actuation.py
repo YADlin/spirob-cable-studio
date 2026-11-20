@@ -277,7 +277,11 @@ def run_session(rig, cfg, camera, inbox, demo=False, max_seconds=600, difference
             if not starting and (status['last_frame_age_s'] is None or status['last_frame_age_s'] > 1):
                 raise RuntimeError('Camera frames are stale')
             if status['frame_count'] >= 10 and (status['observed_fps'] or 0) < rig.get('min_fps', 15):
-                raise RuntimeError('Camera delivery below configured minimum FPS')
+                src=(status.get('source') or {})
+                raise RuntimeError(f"Camera delivery below configured minimum FPS: {status['observed_fps'] or 0:.1f} fps "
+                                   f"measured, {rig.get('min_fps', 15)} required"
+                                   + (f" at {src.get('reported_width'):.0f}x{src.get('reported_height'):.0f} {src.get('reported_fourcc')}" if src.get('reported_width') else '')
+                                   + '. On the Pi, lower width/height in the pi section of rig.local.json and deploy again.')
 
     def wait_for(predicate, seconds, starting=False):
         deadline = time.monotonic() + seconds
